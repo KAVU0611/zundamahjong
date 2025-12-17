@@ -73,7 +73,11 @@ const allTileIds: TileId[] = (() => {
 const createInitialWall = (): TileId[] => {
   const wall: TileId[] = [];
   for (const id of allTileIds) {
-    for (let i = 0; i < 4; i++) wall.push(`${id}_${i}`);
+    for (let i = 0; i < 4; i++) {
+      // 赤5は各色1枚だけ（m5/p5/s5のうち1枚を赤として扱う）
+      const isAkaFive = (id === 'm5' || id === 'p5' || id === 's5') && i === 0;
+      wall.push(isAkaFive ? `${id}_dora_${i}` : `${id}_${i}`);
+    }
   }
   for (let i = wall.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -269,6 +273,15 @@ export const useMahjong = () => {
     player: false,
     opponent: false,
   });
+  const [doubleRiichiState, setDoubleRiichiState] = useState<{ player: boolean; opponent: boolean }>({
+    player: false,
+    opponent: false,
+  });
+  const [ippatsuEligible, setIppatsuEligible] = useState<{ player: boolean; opponent: boolean }>({
+    player: false,
+    opponent: false,
+  });
+  const [anyCallMade, setAnyCallMade] = useState(false);
   const [riichiIntent, setRiichiIntent] = useState<{ player: boolean; opponent: boolean }>({
     player: false,
     opponent: false,
@@ -336,6 +349,9 @@ export const useMahjong = () => {
     setCurrentTurn(null);
     setSkipDraw(false);
     setRiichiState({ player: false, opponent: false });
+    setDoubleRiichiState({ player: false, opponent: false });
+    setIppatsuEligible({ player: false, opponent: false });
+    setAnyCallMade(false);
     setRiichiIntent({ player: false, opponent: false });
     setRiichiDeclarationIndex({ player: null, opponent: null });
     setCalledRiverIndices({ player: [], opponent: [] });
@@ -418,14 +434,26 @@ export const useMahjong = () => {
         return { ...r, [who]: true };
       });
       if (alreadyDeclared) return;
+      const isDoubleRiichi = riverIndex === 0 && !anyCallMade;
+      setDoubleRiichiState((d) => ({ ...d, [who]: isDoubleRiichi }));
+      setIppatsuEligible((i) => ({ ...i, [who]: true }));
       setRiichiIntent((i) => ({ ...i, [who]: false }));
       setRiichiDeclarationIndex((idx) => ({ ...idx, [who]: riverIndex }));
       setScores((s) => ({ ...s, [who]: s[who] - 1000 }));
       setKyotaku((k) => k + 1);
       handleReaction('reach');
     },
-    [handleReaction],
+    [handleReaction, anyCallMade],
   );
+
+  const cancelIppatsu = useCallback(() => {
+    setIppatsuEligible({ player: false, opponent: false });
+  }, []);
+
+  const noteCallMade = useCallback(() => {
+    setAnyCallMade(true);
+    cancelIppatsu();
+  }, [cancelIppatsu]);
 
   const revealDoraIndicator = useCallback(() => {
     setDeadWall((dw) => {
@@ -592,21 +620,25 @@ export const useMahjong = () => {
       const winnerHand = winner === 'player' ? playerHand : opponentHand;
       const winnerMelds = winner === 'player' ? playerMelds : opponentMelds;
 
-      const isDealer = round.dealer === winner;
-      const seatWind: TileId = isDealer ? 'z1' : 'z2';
-      const roundWind = getRoundWind(round.label);
-      const score = calculateScore({
-        concealedTiles: [...winnerHand, winTile],
-        melds: winnerMelds,
-        method: reason,
-        isDealer,
-        isRiichi: riichiState[winner],
-        doraIndicators,
-        uraIndicators,
-        roundWind,
-        seatWind,
-        winTile,
-      });
+	      const isDealer = round.dealer === winner;
+	      const seatWind: TileId = isDealer ? 'z1' : 'z2';
+	      const roundWind = getRoundWind(round.label);
+	      const isDoubleRiichi = doubleRiichiState[winner];
+	      const isIppatsu = ippatsuEligible[winner];
+	      const score = calculateScore({
+	        concealedTiles: [...winnerHand, winTile],
+	        melds: winnerMelds,
+	        method: reason,
+	        isDealer,
+	        isRiichi: riichiState[winner],
+	        isDoubleRiichi,
+	        isIppatsu,
+	        doraIndicators,
+	        uraIndicators,
+	        roundWind,
+	        seatWind,
+	        winTile,
+	      });
 
       const handPoints = score.totalPoints;
       const honbaPoints = honba * 300;
@@ -634,15 +666,17 @@ export const useMahjong = () => {
       opponentHand,
       playerMelds,
       opponentMelds,
-      round.dealer,
-      round.label,
-      riichiState,
-      doraIndicators,
-      uraIndicators,
-      honba,
-      kyotaku,
-    ],
-  );
+	      round.dealer,
+	      round.label,
+	      riichiState,
+	      doubleRiichiState,
+	      ippatsuEligible,
+	      doraIndicators,
+	      uraIndicators,
+	      honba,
+	      kyotaku,
+	    ],
+	  );
 
   const canRonOnDiscard = useCallback(
     (who: Player, tile: TileId) => {
@@ -661,12 +695,13 @@ export const useMahjong = () => {
     return findPonMeldIndexByBase(playerMelds, base) !== -1;
   }, [gameState, playerDrawn, playerMelds]);
 
-  const addKanFromPon = useCallback(() => {
-    if (gameState !== 'player_turn') return false;
-    if (!playerDrawn) return false;
-    const base = tileBase(playerDrawn);
-    const idx = findPonMeldIndexByBase(playerMelds, base);
-    if (idx === -1) return false;
+	  const addKanFromPon = useCallback(() => {
+	    if (gameState !== 'player_turn') return false;
+	    if (!playerDrawn) return false;
+	    const base = tileBase(playerDrawn);
+	    const idx = findPonMeldIndexByBase(playerMelds, base);
+	    if (idx === -1) return false;
+	    noteCallMade();
 
     const drawn = playerDrawn;
     setPlayerDrawn(null);
@@ -682,9 +717,9 @@ export const useMahjong = () => {
     drawTileFor('player'); // 嶺上
     setSkipDraw(false);
     setCurrentTurn('player');
-    setGameState('player_turn');
-    return true;
-  }, [gameState, playerDrawn, playerMelds, revealDoraIndicator, drawTileFor]);
+	    setGameState('player_turn');
+	    return true;
+	  }, [gameState, playerDrawn, playerMelds, noteCallMade, revealDoraIndicator, drawTileFor]);
 
   const promptCallForPlayer = useCallback(
     (tile: TileId) => {
@@ -732,12 +767,14 @@ export const useMahjong = () => {
         handleWin('player', 'ron', tile);
         return;
       }
-      if (type === 'pass') {
-        setCurrentTurn('player');
-        setSkipDraw(false);
-        setGameState('player_turn');
-        return;
-      }
+	      if (type === 'pass') {
+	        setCurrentTurn('player');
+	        setSkipDraw(false);
+	        setGameState('player_turn');
+	        return;
+	      }
+
+	      noteCallMade();
 	
 	      const nextHand = [...playerHand];
 	      let meldToAdd: Meld | null = null;
@@ -780,18 +817,19 @@ export const useMahjong = () => {
         drawTileFor('player'); // 嶺上
         setSkipDraw(false);
       }
-    },
-    [callPrompt, handleWin, drawTileFor, revealDoraIndicator, playerHand, opponentRiver, markCalledDiscard],
-  );
+	    },
+	    [callPrompt, handleWin, noteCallMade, drawTileFor, revealDoraIndicator, playerHand, opponentRiver, markCalledDiscard],
+	  );
 
-  const discardTile = useCallback(
-    (tileIndex: number, fromDrawn: boolean) => {
-      if (gameState !== 'player_turn') return;
-      if (playerDrawn === null && !skipDraw) return;
-      // リーチ中はツモ牌以外を切れない（ツモ切りのみ）
-      if (riichiState.player && !fromDrawn) return;
-      setWinPrompt(null);
-      setDeclinedWinKey(null);
+	  const discardTile = useCallback(
+	    (tileIndex: number, fromDrawn: boolean) => {
+	      if (gameState !== 'player_turn') return;
+	      if (playerDrawn === null && !skipDraw) return;
+	      // リーチ中はツモ牌以外を切れない（ツモ切りのみ）
+	      if (riichiState.player && !fromDrawn) return;
+	      const wasAlreadyRiichi = riichiState.player;
+	      setWinPrompt(null);
+	      setDeclinedWinKey(null);
 
       let discard: TileId | null = null;
       const newHand = [...playerHand];
@@ -831,13 +869,14 @@ export const useMahjong = () => {
       const opponentPon = canPon(opponentHand, discardBase);
       const opponentKan = canKanFromDiscard(opponentHand, discardBase);
 
-      if (opponentPon || opponentKan || opponentChi.length) {
-        const choose = opponentKan ? 'kan' : opponentPon ? 'pon' : opponentChi.length ? 'chi' : null;
-        if (choose === 'kan') {
-          const tile = discard;
-          const newHand = [...opponentHand];
-          const removed = removeTilesByBase(newHand, discardBase, 3);
-          if (removed.length !== 3) return;
+	      if (opponentPon || opponentKan || opponentChi.length) {
+	        const choose = opponentKan ? 'kan' : opponentPon ? 'pon' : opponentChi.length ? 'chi' : null;
+	        if (choose === 'kan') {
+	          noteCallMade();
+	          const tile = discard;
+	          const newHand = [...opponentHand];
+	          const removed = removeTilesByBase(newHand, discardBase, 3);
+	          if (removed.length !== 3) return;
           setOpponentHand(newHand);
           setOpponentMelds((m) => [...m, { type: 'kan', tiles: [tile, ...removed] }]);
           markCalledDiscard('player', discardIndex);
@@ -846,25 +885,27 @@ export const useMahjong = () => {
           setSkipDraw(true);
           setCurrentTurn('opponent');
           setGameState('opponent_turn');
-          return;
-        }
-        if (choose === 'pon') {
-          const tile = discard;
-          const newHand = [...opponentHand];
-          const removed = removeTilesByBase(newHand, discardBase, 2);
-          if (removed.length !== 2) return;
+	          return;
+	        }
+	        if (choose === 'pon') {
+	          noteCallMade();
+	          const tile = discard;
+	          const newHand = [...opponentHand];
+	          const removed = removeTilesByBase(newHand, discardBase, 2);
+	          if (removed.length !== 2) return;
           setOpponentHand(newHand);
           setOpponentMelds((m) => [...m, { type: 'pon', tiles: [tile, ...removed] }]);
           markCalledDiscard('player', discardIndex);
           setSkipDraw(true);
           setCurrentTurn('opponent');
           setGameState('opponent_turn');
-          return;
-        }
-        if (choose === 'chi') {
-          const option = opponentChi[0];
-          const newHand = [...opponentHand];
-          const meldTiles: TileId[] = [];
+	          return;
+	        }
+	        if (choose === 'chi') {
+	          noteCallMade();
+	          const option = opponentChi[0];
+	          const newHand = [...opponentHand];
+	          const meldTiles: TileId[] = [];
           for (const t of option) {
             if (t === discardBase) {
               meldTiles.push(discard);
@@ -880,40 +921,46 @@ export const useMahjong = () => {
           setSkipDraw(true);
           setCurrentTurn('opponent');
           setGameState('opponent_turn');
-          return;
-        }
-      }
+	          return;
+	        }
+	      }
 
-      // 通常進行
-      if (checkRyukyoku()) return;
-      setSkipDraw(false);
-      setCurrentTurn('opponent');
+	      if (wasAlreadyRiichi) {
+	        setIppatsuEligible((i) => ({ ...i, player: false }));
+	      }
+
+	      // 通常進行
+	      if (checkRyukyoku()) return;
+	      setSkipDraw(false);
+	      setCurrentTurn('opponent');
       setGameState('opponent_turn');
     },
-    [
-      gameState,
-      playerDrawn,
-      skipDraw,
-      playerHand,
-      playerRiver,
-      riichiIntent.player,
-      riichiState.player,
-      opponentHand,
-      canRonOnDiscard,
-      handleWin,
-      checkRyukyoku,
-      drawTileFor,
+	    [
+	      gameState,
+	      playerDrawn,
+	      skipDraw,
+	      playerHand,
+	      playerRiver,
+	      riichiIntent.player,
+	      riichiState.player,
+	      noteCallMade,
+	      opponentHand,
+	      canRonOnDiscard,
+	      handleWin,
+	      checkRyukyoku,
+	      drawTileFor,
       revealDoraIndicator,
-      declareRiichi,
-      markCalledDiscard,
-    ],
-  );
+	      declareRiichi,
+	      markCalledDiscard,
+	    ],
+	  );
 
   const opponentDiscard = useCallback(
     (drawnTile?: TileId | null, intentToDeclareRiichi?: boolean): TileId | null => {
       const tile = drawnTile ?? opponentDrawn;
       // リーチ中はツモ牌をツモ切りする
       if (riichiState.opponent && tile) {
+        setIppatsuEligible((i) => ({ ...i, opponent: false }));
         setOpponentDrawn(null);
         setOpponentRiver((r) => [...r, tile]);
         return tile;

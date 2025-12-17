@@ -43,7 +43,19 @@ const TILE_ID_TO_IMAGE_MAP: Record<string, string> = {
 };
 
 const tileBaseId = (tileId: TileId): TileId => tileId.split('_')[0]!;
-const getTilePath = (tileId: TileId): string => `/tiles/${TILE_ID_TO_IMAGE_MAP[tileBaseId(tileId)]}.png`;
+const isAkaDoraTile = (tileId: TileId) => {
+  const base = tileBaseId(tileId);
+  return (base === 'm5' || base === 'p5' || base === 's5') && tileId.includes('_dora_');
+};
+const getTilePath = (tileId: TileId): string => {
+  const base = tileBaseId(tileId);
+  if (isAkaDoraTile(tileId)) {
+    if (base === 'm5') return '/tiles/Man5-Dora.png';
+    if (base === 'p5') return '/tiles/Pin5-Dora.png';
+    if (base === 's5') return '/tiles/Sou5-Dora.png';
+  }
+  return `/tiles/${TILE_ID_TO_IMAGE_MAP[base]}.png`;
+};
 
 type TileProps = {
   tileId?: TileId | null;
@@ -667,10 +679,15 @@ export default function MahjongPage() {
                     </div>
                   </div>
 
-                  {roundResult.score?.uraDoraHan ? (
-                    <p className="text-xs text-green-50/70 mt-3">
-                      裏ドラ候補: {uraDoraTiles.join(', ') || '—'}
-                    </p>
+                  {roundResult.score?.yaku?.some((y) => y.name === '立直' || y.name === 'ダブル立直') ? (
+                    <div className="mt-3">
+                      <p className="text-xs text-green-50/80 mb-1">裏ドラ</p>
+                      <div className="flex gap-1 flex-wrap">
+                        {uraDoraTiles.map((t, i) => (
+                          <Tile key={`${t}-${i}`} tileId={t} className="cursor-default transform-none" />
+                        ))}
+                      </div>
+                    </div>
                   ) : null}
                 </>
               )}

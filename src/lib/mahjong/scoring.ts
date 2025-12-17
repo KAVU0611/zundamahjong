@@ -24,6 +24,7 @@ export type ScoreResult = {
   basePoints: number;
   totalPoints: number;
   doraHan: number;
+  akaDoraHan: number;
   uraDoraHan: number;
 };
 
@@ -69,6 +70,14 @@ const countDora = (tiles: TileId[], indicators: TileId[]) => {
   let total = 0;
   for (const dora of doraTiles) total += counts[dora] || 0;
   return total;
+};
+
+const countAkaDora = (tiles: TileId[]) => {
+  // Red fives are encoded as e.g. "m5_dora_0" and count as 1 han each.
+  return tiles.filter((t) => {
+    const base = baseTile(t);
+    return (base === 'm5' || base === 'p5' || base === 's5') && t.includes('_dora_');
+  }).length;
 };
 
 type SetShape =
@@ -346,6 +355,8 @@ const detectYaku = (opts: {
   pairTile: TileId | null;
   isMenzen: boolean;
   isRiichi: boolean;
+  isDoubleRiichi: boolean;
+  isIppatsu: boolean;
   method: WinMethod;
   roundWind: TileId;
   seatWind: TileId;
@@ -353,7 +364,9 @@ const detectYaku = (opts: {
 }): Yaku[] => {
   const yaku: Yaku[] = [];
 
-  if (opts.isRiichi) yaku.push({ name: '立直', han: 1 });
+  if (opts.isDoubleRiichi) yaku.push({ name: 'ダブル立直', han: 2 });
+  else if (opts.isRiichi) yaku.push({ name: '立直', han: 1 });
+  if ((opts.isRiichi || opts.isDoubleRiichi) && opts.isIppatsu) yaku.push({ name: '一発', han: 1 });
   if (opts.method === 'tsumo' && opts.isMenzen) yaku.push({ name: '門前清自摸和', han: 1 });
 
   if (opts.shape.isSevenPairs) {
@@ -370,18 +383,119 @@ const detectYaku = (opts: {
     for (const s of opts.sets) {
       if (s.kind !== 'triplet' && s.kind !== 'quad') continue;
       const t = s.tile;
-      if (t === 'z5' || t === 'z6' || t === 'z7') yaku.push({ name: '役牌', han: 1 });
-      else if (t === opts.roundWind) yaku.push({ name: '役牌(場風)', han: 1 });
-      else if (t === opts.seatWind) yaku.push({ name: '役牌(自風)', han: 1 });
+      if (t === 'z5' || t === 'z6' || t === 'z7') yaku.push({ name: '役牌：三元牌', han: 1 });
+      if (t === opts.roundWind) yaku.push({ name: '役牌：場風牌', han: 1 });
+      if (t === opts.seatWind) yaku.push({ name: '役牌：自風牌', han: 1 });
     }
 
     // Toitoi
     const allTriplets = opts.sets.every((s) => s.kind === 'triplet' || s.kind === 'quad');
     if (allTriplets) yaku.push({ name: '対々和', han: 2 });
+
+    // Iipeikou / Ryanpeikou (menzen only)
+    if (opts.isMenzen) {
+      const seqKeys = opts.sets
+        .filter((s): s is Extract<SetShape, { kind: 'sequence' }> => s.kind === 'sequence')
+        .map((s) => {
+          const suit = s.tiles[0][0];
+          const start = Math.min(...s.tiles.map(tileNumber));
+          return `${suit}${start}`;
+        });
+      const counts: Record<string, number> = {};
+      for (const k of seqKeys) counts[k] = (counts[k] || 0) + 1;
+      const pairs = Object.values(counts).reduce((sum, n) => sum + Math.floor(n / 2), 0);
+      if (pairs >= 2) yaku.push({ name: '二盃口', han: 3 });
+      else if (pairs === 1) yaku.push({ name: '一盃口', han: 1 });
+    }
+
+    // Sanankou (simplified: count concealed triplets/quads in the fixed decomposition)
+    const concealedTriplets = opts.sets.filter(
+      (s) => (s.kind === 'triplet' || s.kind === 'quad') && !s.open,
+    ).length;
+    if (concealedTriplets >= 3) yaku.push({ name: '三暗刻', han: 2 });
+
+    // Sankantsu
+    const kans = opts.sets.filter((s) => s.kind === 'quad').length;
+    if (kans >= 3) yaku.push({ name: '三槓子', han: 2 });
+
+    // Shousangen
+    if (opts.pairTile === 'z5' || opts.pairTile === 'z6' || opts.pairTile === 'z7') {
+      const dragons = new Set(
+        opts.sets
+          .filter((s) => s.kind === 'triplet' || s.kind === 'quad')
+          .map((s) => (s.kind === 'triplet' || s.kind === 'quad' ? s.tile : null))
+          .filter((t): t is TileId => t === 'z5' || t === 'z6' || t === 'z7'),
+      );
+      dragons.delete(opts.pairTile);
+      if (dragons.size === 2) yaku.push({ name: '小三元', han: 2 });
+    }
+
+    // Sanshoku doujun / Ittsu (kuisagari supported)
+    const seqStarts = opts.sets
+      .filter((s): s is Extract<SetShape, { kind: 'sequence' }> => s.kind === 'sequence')
+      .map((s) => {
+        const suit = s.tiles[0][0];
+        const start = Math.min(...s.tiles.map(tileNumber));
+        return { suit, start };
+      });
+    const hasSeq = (suit: string, start: number) => seqStarts.some((x) => x.suit === suit && x.start === start);
+    for (let start = 1; start <= 7; start++) {
+      if (hasSeq('m', start) && hasSeq('p', start) && hasSeq('s', start)) {
+        yaku.push({ name: '三色同順', han: opts.isMenzen ? 2 : 1 });
+        break;
+      }
+    }
+    for (const suit of ['m', 'p', 's'] as const) {
+      if (hasSeq(suit, 1) && hasSeq(suit, 4) && hasSeq(suit, 7)) {
+        yaku.push({ name: '一気通貫', han: opts.isMenzen ? 2 : 1 });
+        break;
+      }
+    }
+
+    // Sanshoku doukou
+    const tripletNums = opts.sets
+      .filter((s): s is Extract<SetShape, { kind: 'triplet' | 'quad' }> => s.kind === 'triplet' || s.kind === 'quad')
+      .map((s) => s.tile)
+      .filter((t) => t[0] !== 'z')
+      .map((t) => ({ suit: t[0], num: tileNumber(t) }));
+    for (let num = 1; num <= 9; num++) {
+      const hasM = tripletNums.some((x) => x.suit === 'm' && x.num === num);
+      const hasP = tripletNums.some((x) => x.suit === 'p' && x.num === num);
+      const hasS = tripletNums.some((x) => x.suit === 's' && x.num === num);
+      if (hasM && hasP && hasS) {
+        yaku.push({ name: '三色同刻', han: 2 });
+        break;
+      }
+    }
+
+    // Chanta / Junchan
+    const allParts: (TileId | TileId[])[] = [
+      ...(opts.pairTile ? [opts.pairTile] : []),
+      ...opts.sets.map((s) => (s.kind === 'sequence' ? s.tiles : s.tile)),
+    ];
+    const partHasYaochu = (part: TileId | TileId[]) => {
+      const tiles = Array.isArray(part) ? part : [part];
+      return tiles.some((t) => isTerminalOrHonor(t));
+    };
+    const partHasHonor = (part: TileId | TileId[]) => {
+      const tiles = Array.isArray(part) ? part : [part];
+      return tiles.some((t) => isHonor(t));
+    };
+    const allHaveYaochu = allParts.length > 0 && allParts.every(partHasYaochu);
+    if (allHaveYaochu) {
+      const hasHonor = allParts.some(partHasHonor);
+      if (!hasHonor) yaku.push({ name: '純全帯么九', han: opts.isMenzen ? 3 : 2 });
+      else yaku.push({ name: '混全帯么九', han: opts.isMenzen ? 2 : 1 });
+    }
   }
 
   // Tanyao (works for chiitoi too)
   if (allTilesAreTanyao(opts.allTiles)) yaku.push({ name: '断么九', han: 1 });
+
+  // Honroutou (terminals/honors only and no sequences)
+  const allYaochuOnly = opts.allTiles.every((t) => isTerminalOrHonor(t));
+  const hasSequence = opts.sets.some((s) => s.kind === 'sequence');
+  if (allYaochuOnly && !hasSequence && !opts.shape.isSevenPairs) yaku.push({ name: '混老頭', han: 2 });
 
   // Honitsu / Chinitsu
   const hasHonor = opts.allTiles.some((t) => isHonor(t));
@@ -430,6 +544,8 @@ export const calculateScore = (opts: {
   method: WinMethod;
   isDealer: boolean;
   isRiichi: boolean;
+  isDoubleRiichi?: boolean;
+  isIppatsu?: boolean;
   doraIndicators: TileId[];
   uraIndicators: TileId[];
   roundWind: TileId; // z1..z4
@@ -439,7 +555,8 @@ export const calculateScore = (opts: {
   const isMenzen = opts.melds.length === 0;
   const openSetShapes = buildMeldShapes(opts.melds);
 
-  const allTiles = [...opts.concealedTiles, ...tilesFromSets(openSetShapes)];
+  const meldTileInstances = opts.melds.flatMap((m) => m.tiles);
+  const allTiles = [...opts.concealedTiles, ...meldTileInstances];
 
   const preWinConcealedTiles = removeOneTile(opts.concealedTiles, opts.winTile);
   const possibleWinTiles = listPossibleWinTiles({
@@ -482,8 +599,10 @@ export const calculateScore = (opts: {
   if (!candidateShapes.length) {
     // Fallback: still return dora-only score (should not normally happen)
     const doraHan = countDora(allTiles, opts.doraIndicators);
-    const uraDoraHan = opts.isRiichi ? countDora(allTiles, opts.uraIndicators) : 0;
-    const han = doraHan + uraDoraHan;
+    const akaDoraHan = countAkaDora(allTiles);
+    const riichiLike = opts.isRiichi || opts.isDoubleRiichi;
+    const uraDoraHan = riichiLike ? countDora(allTiles, opts.uraIndicators) : 0;
+    const han = doraHan + akaDoraHan + uraDoraHan;
     const fu = 20;
     const limit = detectLimitName(han, fu);
     const base = limit ? limit.base : fu * Math.pow(2, han + 2);
@@ -495,6 +614,7 @@ export const calculateScore = (opts: {
       basePoints: base,
       totalPoints: calcTotalPoints(opts.method, opts.isDealer, base),
       doraHan,
+      akaDoraHan,
       uraDoraHan,
     };
   }
@@ -508,6 +628,8 @@ export const calculateScore = (opts: {
       pairTile,
       isMenzen,
       isRiichi: opts.isRiichi,
+      isDoubleRiichi: opts.isDoubleRiichi ?? false,
+      isIppatsu: opts.isIppatsu ?? false,
       method: opts.method,
       roundWind: opts.roundWind,
       seatWind: opts.seatWind,
@@ -516,8 +638,10 @@ export const calculateScore = (opts: {
 
     const baseYakuHan = yaku.reduce((sum, y) => sum + y.han, 0);
     const doraHan = countDora(allTiles, opts.doraIndicators);
-    const uraDoraHan = opts.isRiichi ? countDora(allTiles, opts.uraIndicators) : 0;
-    const han = baseYakuHan + doraHan + uraDoraHan;
+    const akaDoraHan = countAkaDora(allTiles);
+    const riichiLike = opts.isRiichi || opts.isDoubleRiichi;
+    const uraDoraHan = riichiLike ? countDora(allTiles, opts.uraIndicators) : 0;
+    const han = baseYakuHan + doraHan + akaDoraHan + uraDoraHan;
 
     const isPinfu = yaku.some((y) => y.name === '平和');
     const fu = calcFu({
@@ -534,6 +658,7 @@ export const calculateScore = (opts: {
 
     const scoreYaku: Yaku[] = [...yaku];
     if (doraHan > 0) scoreYaku.push({ name: `ドラ ${doraHan}`, han: doraHan });
+    if (akaDoraHan > 0) scoreYaku.push({ name: `赤ドラ ${akaDoraHan}`, han: akaDoraHan });
     if (uraDoraHan > 0) scoreYaku.push({ name: `裏ドラ ${uraDoraHan}`, han: uraDoraHan });
 
     return {
@@ -544,6 +669,7 @@ export const calculateScore = (opts: {
       basePoints,
       totalPoints: calcTotalPoints(opts.method, opts.isDealer, basePoints),
       doraHan,
+      akaDoraHan,
       uraDoraHan,
     };
   });
