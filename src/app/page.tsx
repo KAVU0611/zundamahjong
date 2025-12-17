@@ -412,20 +412,32 @@ export default function MahjongPage() {
                   <Tile
                     key={`${tile}-${i}`}
                     tileId={tile}
-                    onClick={() => {
-                      playSe('discard');
-                      discardTile(i, false);
-                    }}
+                    onClick={
+                      gameState === 'player_turn' && !riichiState.player
+                        ? () => {
+                            playSe('discard');
+                            discardTile(i, false);
+                          }
+                        : undefined
+                    }
+                    className={
+                      gameState !== 'player_turn' || riichiState.player ? 'opacity-60 cursor-not-allowed sm:hover:translate-y-0 transform-none' : ''
+                    }
                   />
                 ))}
                 {playerDrawn && (
                   <div className="ml-2 sm:ml-3">
                     <Tile
                       tileId={playerDrawn}
-                      onClick={() => {
-                        playSe('discard');
-                        discardTile(0, true);
-                      }}
+                      onClick={
+                        gameState === 'player_turn'
+                          ? () => {
+                              playSe('discard');
+                              discardTile(0, true);
+                            }
+                          : undefined
+                      }
+                      className={gameState !== 'player_turn' ? 'opacity-60 cursor-not-allowed sm:hover:translate-y-0 transform-none' : ''}
                     />
                   </div>
                 )}

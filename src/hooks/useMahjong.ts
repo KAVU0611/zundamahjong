@@ -751,6 +751,8 @@ export const useMahjong = () => {
     (tileIndex: number, fromDrawn: boolean) => {
       if (gameState !== 'player_turn') return;
       if (playerDrawn === null && !skipDraw) return;
+      // リーチ中はツモ牌以外を切れない（ツモ切りのみ）
+      if (riichiState.player && !fromDrawn) return;
       setWinPrompt(null);
       setDeclinedWinKey(null);
 
@@ -874,6 +876,12 @@ export const useMahjong = () => {
   const opponentDiscard = useCallback(
     (drawnTile?: TileId | null, intentToDeclareRiichi?: boolean): TileId | null => {
       const tile = drawnTile ?? opponentDrawn;
+      // リーチ中はツモ牌をツモ切りする
+      if (riichiState.opponent && tile) {
+        setOpponentDrawn(null);
+        setOpponentRiver((r) => [...r, tile]);
+        return tile;
+      }
       const fullHand = tile ? [...opponentHand, tile] : [...opponentHand];
       if (!fullHand.length) return null;
       const discardIndex = Math.floor(Math.random() * fullHand.length);
@@ -891,7 +899,7 @@ export const useMahjong = () => {
       }
       return discard;
     },
-    [opponentHand, opponentDrawn, opponentRiver, riichiIntent.opponent, riichiState.opponent, declareRiichi, opponentMelds],
+    [opponentDrawn, opponentHand, opponentRiver, riichiIntent.opponent, riichiState.opponent, declareRiichi, opponentMelds],
   );
 
   const opponentTurn = useCallback(() => {
