@@ -414,7 +414,7 @@ export default function MahjongPage() {
           </section>
 
           <section className="flex flex-col gap-2">
-            <div className="w-full flex flex-col sm:flex-row items-stretch gap-2 sm:gap-3 bg-green-950/40 rounded-lg px-2 sm:px-3 py-2 border border-green-700/40">
+            <div className="w-full flex flex-col items-stretch gap-2 sm:gap-3 bg-green-950/40 rounded-lg px-2 sm:px-3 py-2 border border-green-700/40">
               <div className="flex items-center gap-1 flex-nowrap overflow-x-auto">
                 {playerHand.map((tile, i) => (
                   <Tile
