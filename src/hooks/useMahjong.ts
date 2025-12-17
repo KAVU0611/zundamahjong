@@ -239,9 +239,9 @@ const findPonMeldIndexByBase = (melds: Meld[], baseTileId: TileId): number => {
 };
 
 const canFormSets = (counts: Record<string, number>): boolean => {
-  const entries = Object.entries(counts).filter(([, v]) => v > 0);
-  if (entries.length === 0) return true;
-  const [tile, ct] = entries[0];
+  const tile = allTileIds.find((t) => (counts[t] || 0) > 0);
+  if (!tile) return true;
+  const ct = counts[tile] || 0;
   const nextCounts = cloneCounts(counts);
 
   if (ct >= 3) {
