@@ -4,43 +4,7 @@ import React from 'react';
 import Image from 'next/image';
 import { useMahjong, TileId } from '../hooks/useMahjong';
 import { useSounds } from '../hooks/useSounds';
-
-const TILE_ID_TO_IMAGE_MAP: Record<string, string> = {
-  m1: 'Man1',
-  m2: 'Man2',
-  m3: 'Man3',
-  m4: 'Man4',
-  m5: 'Man5',
-  m6: 'Man6',
-  m7: 'Man7',
-  m8: 'Man8',
-  m9: 'Man9',
-  p1: 'Pin1',
-  p2: 'Pin2',
-  p3: 'Pin3',
-  p4: 'Pin4',
-  p5: 'Pin5',
-  p6: 'Pin6',
-  p7: 'Pin7',
-  p8: 'Pin8',
-  p9: 'Pin9',
-  s1: 'Sou1',
-  s2: 'Sou2',
-  s3: 'Sou3',
-  s4: 'Sou4',
-  s5: 'Sou5',
-  s6: 'Sou6',
-  s7: 'Sou7',
-  s8: 'Sou8',
-  s9: 'Sou9',
-  z1: 'Ton',
-  z2: 'Nan',
-  z3: 'Shaa',
-  z4: 'Pei',
-  z5: 'Haku',
-  z6: 'Hatsu',
-  z7: 'Chun',
-};
+import { TILE_ASSET_PATHS, TILE_ID_TO_IMAGE_MAP } from './tileAssets';
 
 const parseTileIdForDisplay = (tileId: TileId): { base: TileId; isRed: boolean } => {
   const dashParts = tileId.split('-');
@@ -72,17 +36,6 @@ const getTilePath = (tileId: TileId): string => {
   }
   return `/tiles/${TILE_ID_TO_IMAGE_MAP[base]}.png`;
 };
-
-const TILE_ASSET_PATHS: string[] = Array.from(
-  new Set([
-    '/tiles/Front.png',
-    '/tiles/Back.png',
-    '/tiles/Man5-Dora.png',
-    '/tiles/Pin5-Dora.png',
-    '/tiles/Sou5-Dora.png',
-    ...Object.values(TILE_ID_TO_IMAGE_MAP).map((name) => `/tiles/${name}.png`),
-  ]),
-);
 
 const preloadImages = (paths: string[]) => {
   if (typeof window === 'undefined') return;

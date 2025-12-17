@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { TILE_ASSET_PATHS } from "./tileAssets";
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -13,6 +14,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        {TILE_ASSET_PATHS.map((href) => (
+          <link key={href} rel="preload" as="image" href={href} fetchPriority="high" />
+        ))}
+      </head>
       <body className="antialiased">{children}</body>
     </html>
   );
