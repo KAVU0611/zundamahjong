@@ -191,11 +191,10 @@ const canDeclareRiichiFromHand = (baseHand: TileId[], drawn: TileId | null, meld
   if (melds.length > 0) return false; // 門前のみ
   const fullHand = drawn ? [...baseHand, drawn] : [...baseHand];
 
-  // 13枚ならそのままテンパイ判定、14枚なら「どれか1枚切ってテンパイになれるか」を判定
-  if (fullHand.length === 13) return isTenpai(fullHand);
-  if (fullHand.length === 14) {
-    return isTenpaiWithDrawn(baseHand, drawn);
-  }
+  // 13枚相当(≡1 mod 3)ならそのままテンパイ判定、
+  // 14枚相当(≡2 mod 3)なら「どれか1枚切ってテンパイになれるか」を判定
+  if (fullHand.length % 3 === 1) return isTenpai(fullHand);
+  if (fullHand.length % 3 === 2) return isTenpaiWithDrawn(baseHand, drawn);
   return false;
 };
 
