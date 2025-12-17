@@ -310,6 +310,16 @@ export default function MahjongPage() {
     };
   }, [roundResult]);
 
+  const opponentWinTileForReveal = React.useMemo<TileId | null>(() => {
+    if (!roundResult) return null;
+    if (roundResult.reason === 'ryuukyoku') return null;
+    if (roundResult.winner !== 'opponent') return null;
+    if (roundResult.reason === 'tsumo') return opponentDrawn ?? null;
+    // Ron tile is the player's last discard (should still be face-up in the river).
+    const last = playerRiver[playerRiver.length - 1];
+    return (last?.tileId ?? last?.base) ?? null;
+  }, [roundResult, opponentDrawn, playerRiver]);
+
   return (
     <main className="flex flex-col items-center min-h-[100dvh] bg-green-800 text-white p-2 sm:p-3 font-sans overflow-x-hidden">
       <div className="w-full max-w-5xl flex flex-col gap-3">
@@ -693,6 +703,47 @@ export default function MahjongPage() {
                       </div>
                     </div>
                   </div>
+
+                  {roundResult.winner === 'opponent' && (
+                    <div className="mt-3">
+                      <p className="text-sm font-bold text-green-50 mb-1">ずんだもんの手牌</p>
+                      <div className="bg-black/20 rounded px-3 py-2">
+                        <div className="flex items-center gap-1 flex-nowrap overflow-x-auto">
+                          {opponentHand.map((tile, i) => (
+                            <Tile
+                              key={`${tile}-${i}`}
+                              tileId={tile}
+                              className="w-7 h-10 sm:w-8 sm:h-12 shadow-none cursor-default transform-none"
+                            />
+                          ))}
+                          {opponentWinTileForReveal && (
+                            <div className="ml-2 flex items-center gap-2">
+                              <span className="text-[11px] text-green-50/80 whitespace-nowrap">
+                                {roundResult.reason === 'tsumo' ? 'ツモ牌' : 'ロン牌'}
+                              </span>
+                              <Tile
+                                tileId={opponentWinTileForReveal}
+                                className="w-7 h-10 sm:w-8 sm:h-12 shadow-none cursor-default transform-none ring-2 ring-yellow-300"
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        {opponentMelds.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-xs text-green-50/80 mb-1">鳴き</p>
+                            <div className="flex flex-wrap gap-2">
+                              {opponentMelds.map((m, idx) => (
+                                <div key={`${m.type}-${idx}`} className="bg-white/10 rounded px-2 py-1">
+                                  <MeldView tiles={m.tiles} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {roundResult.score?.yaku?.some((y) => y.name === '立直' || y.name === 'ダブル立直') ? (
                     <div className="mt-3">
