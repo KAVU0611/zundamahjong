@@ -821,30 +821,37 @@ export const useMahjong = () => {
 	    [callPrompt, handleWin, noteCallMade, drawTileFor, revealDoraIndicator, playerHand, opponentRiver, markCalledDiscard],
 	  );
 
-	  const discardTile = useCallback(
-	    (tileIndex: number, fromDrawn: boolean) => {
-	      if (gameState !== 'player_turn') return;
-	      if (playerDrawn === null && !skipDraw) return;
-	      // リーチ中はツモ牌以外を切れない（ツモ切りのみ）
-	      if (riichiState.player && !fromDrawn) return;
-	      const wasAlreadyRiichi = riichiState.player;
-	      setWinPrompt(null);
-	      setDeclinedWinKey(null);
+  const discardTile = useCallback(
+    (tileIndex: number, fromDrawn: boolean) => {
+      if (gameState !== 'player_turn') return;
+      if (playerDrawn === null && !skipDraw) return;
+      // リーチ中はツモ牌以外を切れない（ツモ切りのみ）
+      if (riichiState.player && !fromDrawn) return;
+      const wasAlreadyRiichi = riichiState.player;
+      setWinPrompt(null);
+      setDeclinedWinKey(null);
 
       let discard: TileId | null = null;
+      let nextDrawn: TileId | null = playerDrawn;
       const newHand = [...playerHand];
+
       if (fromDrawn) {
         discard = playerDrawn;
-        setPlayerDrawn(null);
+        nextDrawn = null;
       } else {
-        discard = newHand.splice(tileIndex, 1)[0];
+        discard = newHand.splice(tileIndex, 1)[0] ?? null;
         if (playerDrawn) {
           newHand.push(playerDrawn);
           newHand.sort(sortHand);
-          setPlayerDrawn(null);
+          nextDrawn = null;
         }
       }
       if (!discard) return;
+
+      // リーチ準備中は「切ってもテンパイが維持できる牌」以外切れない
+      if (riichiIntent.player && !riichiState.player && !isTenpai(newHand)) return;
+
+      setPlayerDrawn(nextDrawn);
       setPlayerHand(newHand);
       const discardIndex = playerRiver.length;
       setPlayerRiver((r) => [...r, discard!]);
