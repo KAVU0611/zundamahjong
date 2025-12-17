@@ -101,9 +101,25 @@ const countRedFives = (deck: TileSpec[]) =>
   deck.filter((t) => (t.type === 'man' || t.type === 'pin' || t.type === 'sou') && t.number === 5 && t.index === 0).length;
 
 const validateDeck = (deck: TileSpec[]): TileSpec[] => {
+  // Sanitize: physically enforce "max 4 tiles per kind" for all 34 kinds.
+  // If a kind appears 5+ times, drop extras immediately and warn.
+  const scannedCounts: Record<string, number> = {};
+  const sanitized: TileSpec[] = [];
+  for (const t of deck) {
+    const key = `${t.type}-${t.number}`;
+    const nextCount = (scannedCounts[key] ?? 0) + 1;
+    scannedCounts[key] = nextCount;
+    if (nextCount > 4) {
+      // eslint-disable-next-line no-console
+      console.warn(`Warning: Removed extra tile ${key} (Count: ${nextCount})`);
+      continue;
+    }
+    sanitized.push(t);
+  }
+
   // Repair duplicates/missing indices per (type, number) so that each group has exactly indexes 0..3 once.
   const byKey: Record<string, TileSpec[]> = {};
-  for (const t of deck) {
+  for (const t of sanitized) {
     const key = `${t.type}-${t.number}`;
     byKey[key] = byKey[key] ?? [];
     byKey[key]!.push(t);
