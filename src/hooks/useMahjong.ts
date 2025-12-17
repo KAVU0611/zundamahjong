@@ -22,6 +22,9 @@ type Meld = {
   tiles: TileId[];
 };
 
+type KanKind = 'ankan' | 'kakan';
+export type KanCandidate = { kind: KanKind; base: TileId };
+
 export type Reaction = 'none' | 'reach' | 'ron' | 'tsumo' | 'ryuukyoku';
 
 type CallPrompt = {
@@ -895,38 +898,93 @@ export const useMahjong = () => {
     [playerHand, opponentHand, playerRiver, opponentRiver],
   );
 
-  const canAddKan = useMemo(() => {
-    if (gameState !== 'player_turn') return false;
-    if (!playerDrawn) return false;
-    const base = tileBase(playerDrawn);
-    return findPonMeldIndexByBase(playerMelds, base) !== -1;
-  }, [gameState, playerDrawn, playerMelds]);
+  const kanCandidates = useMemo<KanCandidate[]>(() => {
+    if (gameState !== 'player_turn') return [];
 
-	  const addKanFromPon = useCallback(() => {
-	    if (gameState !== 'player_turn') return false;
-	    if (!playerDrawn) return false;
-	    const base = tileBase(playerDrawn);
-	    const idx = findPonMeldIndexByBase(playerMelds, base);
-	    if (idx === -1) return false;
-	    noteCallMade();
+    const concealedTiles = playerDrawn ? [...playerHand, playerDrawn] : [...playerHand];
+    const concealedCounts = countTiles(concealedTiles);
 
-    const drawn = playerDrawn;
-    setPlayerDrawn(null);
-    setPlayerMelds((melds) => {
-      const next = [...melds];
-      const current = next[idx];
-      if (!current || current.type !== 'pon') return melds;
-      next[idx] = { type: 'kan', tiles: [...current.tiles, drawn] };
-      return next;
-    });
+    const ankan: KanCandidate[] = Object.entries(concealedCounts)
+      .filter(([, ct]) => ct >= 4)
+      .map(([base]) => ({ kind: 'ankan' as const, base }));
 
-    revealDoraIndicator();
-    drawTileFor('player'); // 嶺上
-    setSkipDraw(false);
-    setCurrentTurn('player');
-	    setGameState('player_turn');
-	    return true;
-	  }, [gameState, playerDrawn, playerMelds, noteCallMade, revealDoraIndicator, drawTileFor]);
+    const kakan: KanCandidate[] = playerMelds
+      .map((m) => (m.type === 'pon' ? tileBase(m.tiles[0]!) : null))
+      .filter((base): base is TileId => !!base && (concealedCounts[base] || 0) >= 1)
+      .map((base) => ({ kind: 'kakan' as const, base }));
+
+    const orderSuit = (b: string) => (b[0] === 'm' ? 0 : b[0] === 'p' ? 1 : b[0] === 's' ? 2 : 3);
+    const orderNum = (b: string) => parseInt(b.slice(1), 10) || 0;
+    const sortByBase = (a: TileId, b: TileId) => {
+      const sa = orderSuit(a);
+      const sb = orderSuit(b);
+      if (sa !== sb) return sa - sb;
+      return orderNum(a) - orderNum(b);
+    };
+
+    return [...ankan.sort((a, b) => sortByBase(a.base, b.base)), ...kakan.sort((a, b) => sortByBase(a.base, b.base))];
+  }, [gameState, playerHand, playerDrawn, playerMelds]);
+
+  const declareKan = useCallback(
+    (base: TileId): boolean => {
+      if (gameState !== 'player_turn') return false;
+
+      const candidate = kanCandidates.find((c) => c.base === base);
+      if (!candidate) return false;
+
+      noteCallMade();
+
+      if (candidate.kind === 'kakan') {
+        const idx = findPonMeldIndexByBase(playerMelds, base);
+        if (idx === -1) return false;
+
+        const nextHand = [...playerHand];
+        let addedTile: TileId | null = null;
+        let nextDrawn: TileId | null = playerDrawn;
+
+        if (nextDrawn && tileBase(nextDrawn) === base) {
+          addedTile = nextDrawn;
+          nextDrawn = null;
+        } else {
+          addedTile = removeOneTileByBase(nextHand, base);
+        }
+        if (!addedTile) return false;
+
+        setPlayerHand(nextHand.sort(sortHand));
+        setPlayerDrawn(nextDrawn);
+        setPlayerMelds((melds) => {
+          const next = [...melds];
+          const current = next[idx];
+          if (!current || current.type !== 'pon') return melds;
+          next[idx] = { type: 'kan', tiles: [...current.tiles, addedTile!] };
+          return next;
+        });
+      } else {
+        const nextHand = [...playerHand];
+        let nextDrawn: TileId | null = playerDrawn;
+        const taken: TileId[] = [];
+
+        taken.push(...removeTilesByBase(nextHand, base, 4));
+        while (taken.length < 4 && nextDrawn && tileBase(nextDrawn) === base) {
+          taken.push(nextDrawn);
+          nextDrawn = null;
+        }
+        if (taken.length !== 4) return false;
+
+        setPlayerHand(nextHand.sort(sortHand));
+        setPlayerDrawn(nextDrawn);
+        setPlayerMelds((m) => [...m, { type: 'kan', tiles: taken }]);
+      }
+
+      revealDoraIndicator();
+      drawTileFor('player'); // 嶺上
+      setSkipDraw(false);
+      setCurrentTurn('player');
+      setGameState('player_turn');
+      return true;
+    },
+    [gameState, kanCandidates, noteCallMade, playerMelds, playerHand, playerDrawn, revealDoraIndicator, drawTileFor],
+  );
 
   const promptCallForPlayer = useCallback(
     (tile: TileId) => {
@@ -1379,8 +1437,8 @@ const opponentDiscard = useCallback(
     startGame,
     nextRound,
     discardTile,
-    canAddKan,
-    addKanFromPon,
+    kanCandidates,
+    declareKan,
     resolveCall,
     resolveWinPrompt,
     handleRiichi,

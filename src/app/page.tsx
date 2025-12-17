@@ -203,8 +203,8 @@ export default function MahjongPage() {
     startGame,
     nextRound,
     discardTile,
-    canAddKan,
-    addKanFromPon,
+    kanCandidates,
+    declareKan,
     resolveCall,
     resolveWinPrompt,
     handleRiichi,
@@ -214,6 +214,7 @@ export default function MahjongPage() {
   const isPlayerDealer = round?.dealer === 'player';
   const isOpponentDealer = round?.dealer === 'opponent';
   const [ronConfirmOpen, setRonConfirmOpen] = React.useState(false);
+  const [kanSelectKind, setKanSelectKind] = React.useState<'ankan' | 'kakan' | null>(null);
   const prevOpponentMeldCountRef = React.useRef(0);
   const prevOpponentRiichiRef = React.useRef(false);
   const prevOpponentRiichiIntentRef = React.useRef(false);
@@ -225,6 +226,10 @@ export default function MahjongPage() {
   React.useEffect(() => {
     if (!callPrompt) setRonConfirmOpen(false);
   }, [callPrompt]);
+
+  React.useEffect(() => {
+    if (gameState !== 'player_turn') setKanSelectKind(null);
+  }, [gameState]);
 
   React.useEffect(() => {
     const prev = prevOpponentMeldCountRef.current;
@@ -323,6 +328,10 @@ export default function MahjongPage() {
       body: `${winnerLabel}: +${points}点 / ${loserLabel}: -${points}点 ${kyotakuText}`,
     };
   }, [roundResult]);
+
+  const ankanCandidates = React.useMemo(() => kanCandidates.filter((c) => c.kind === 'ankan'), [kanCandidates]);
+  const kakanCandidates = React.useMemo(() => kanCandidates.filter((c) => c.kind === 'kakan'), [kanCandidates]);
+  const selectedKanCandidates = kanSelectKind === 'ankan' ? ankanCandidates : kanSelectKind === 'kakan' ? kakanCandidates : [];
 
   return (
     <main className="flex flex-col items-center min-h-[100dvh] bg-green-800 text-white p-2 sm:p-3 font-sans overflow-x-hidden">
@@ -481,11 +490,33 @@ export default function MahjongPage() {
               <MeldZone title="あなたの鳴き牌" melds={playerMelds} />
             </div>
             <div className="flex flex-wrap gap-2 justify-center">
-              {canAddKan && (
+              {ankanCandidates.length > 0 && (
                 <button
                   onClick={() => {
                     playSe('click');
-                    addKanFromPon();
+                    if (ankanCandidates.length === 1) {
+                      declareKan(ankanCandidates[0]!.base);
+                      return;
+                    }
+                    setKanSelectKind('ankan');
+                  }}
+                  disabled={gameState !== 'player_turn'}
+                  className={`px-4 py-2 rounded font-bold border bg-purple-600 text-white border-purple-800 hover:bg-purple-500 ${
+                    gameState !== 'player_turn' ? 'opacity-60 cursor-not-allowed' : ''
+                  }`}
+                >
+                  暗カン
+                </button>
+              )}
+              {kakanCandidates.length > 0 && (
+                <button
+                  onClick={() => {
+                    playSe('click');
+                    if (kakanCandidates.length === 1) {
+                      declareKan(kakanCandidates[0]!.base);
+                      return;
+                    }
+                    setKanSelectKind('kakan');
                   }}
                   disabled={gameState !== 'player_turn'}
                   className={`px-4 py-2 rounded font-bold border bg-purple-500 text-white border-purple-700 hover:bg-purple-400 ${
@@ -583,6 +614,39 @@ export default function MahjongPage() {
                 }}
               >
                 スルー
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {kanSelectKind && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-30">
+          <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
+            <p className="font-bold mb-3">{kanSelectKind === 'ankan' ? '暗槓する牌を選んでください' : '加カンする牌を選んでください'}</p>
+            <div className="flex flex-wrap gap-2">
+              {selectedKanCandidates.map((c) => (
+                <button
+                  key={`${c.kind}-${c.base}`}
+                  className="px-3 py-2 bg-purple-500 text-white rounded flex items-center gap-2"
+                  onClick={() => {
+                    playSe('click');
+                    setKanSelectKind(null);
+                    declareKan(c.base);
+                  }}
+                >
+                  <Tile tileId={c.base} className="w-7 h-10 sm:w-8 sm:h-12 shadow-none cursor-default transform-none" />
+                  <span className="font-mono">{c.base}</span>
+                </button>
+              ))}
+              <button
+                className="px-3 py-2 bg-gray-300 rounded"
+                onClick={() => {
+                  playSe('click');
+                  setKanSelectKind(null);
+                }}
+              >
+                キャンセル
               </button>
             </div>
           </div>
