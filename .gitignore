@@ -44,5 +44,8 @@ next-env.d.ts
 dev.log
 dev.pid
 
+# ad-hoc sanity test build artifacts
+/.tmp_sanity/
+
 # Windows alternate data stream metadata (when copied from Windows)
 *:Zone.Identifier

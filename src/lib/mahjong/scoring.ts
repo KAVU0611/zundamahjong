@@ -84,6 +84,20 @@ type HandShape = {
   isPinfuWait: boolean;
 };
 
+const removeOneTile = (tiles: TileId[], target: TileId): TileId[] => {
+  const targetBase = baseTile(target);
+  const out: TileId[] = [];
+  let removed = false;
+  for (const t of tiles) {
+    if (!removed && baseTile(t) === targetBase) {
+      removed = true;
+      continue;
+    }
+    out.push(t);
+  }
+  return out;
+};
+
 const tilesFromSets = (sets: SetShape[]) => {
   const out: TileId[] = [];
   for (const s of sets) {
@@ -137,6 +151,31 @@ const buildMeldShapes = (melds: Meld[]): SetShape[] => {
     }
   }
   return shapes;
+};
+
+const listPossibleWinTiles = (opts: {
+  preWinConcealedTiles: TileId[]; // 13 tiles (hand without winning tile)
+  openSetCount: number;
+}): Set<TileId> => {
+  const normalizedPreWin = opts.preWinConcealedTiles.map(baseTile);
+  const winTiles = new Set<TileId>();
+
+  const requiredConcealedSetCount = 4 - opts.openSetCount;
+  for (const candidate of sortedTileIds) {
+    const concealed14 = [...normalizedPreWin, candidate];
+
+    if (opts.openSetCount === 0 && isChiitoi(concealed14)) {
+      winTiles.add(candidate);
+      continue;
+    }
+
+    if (requiredConcealedSetCount >= 0) {
+      const shapes = extractAllConcealedShapes(concealed14, requiredConcealedSetCount, candidate);
+      if (shapes.length > 0) winTiles.add(candidate);
+    }
+  }
+
+  return winTiles;
 };
 
 const extractAllConcealedShapes = (
@@ -270,12 +309,12 @@ const calcFu = (opts: {
   if (opts.method === 'ron' && opts.isMenzen) fu += 10;
   if (opts.method === 'tsumo' && !opts.isPinfu) fu += 2;
 
-  // Pair fu (yakuhai pair)
+  // Pair fu (yakuhai pair): simplified as a flat +2符 when it is any value tile.
   if (opts.shape.pairTile) {
     const p = opts.shape.pairTile;
-    if (p === 'z5' || p === 'z6' || p === 'z7') fu += 2;
-    if (p === opts.roundWind) fu += 2;
-    if (p === opts.seatWind) fu += 2;
+    const isValuePair =
+      p === 'z5' || p === 'z6' || p === 'z7' || p === opts.roundWind || p === opts.seatWind;
+    if (isValuePair) fu += 2;
   }
 
   // Wait fu
@@ -298,9 +337,7 @@ const calcFu = (opts: {
   // Pinfu special: tsumo is always 20符 (no tsumo fu, no wait/pair/set fu)
   if (opts.isPinfu && opts.method === 'tsumo' && opts.isMenzen) return 20;
 
-  const rounded = roundUpToTens(fu);
-  // 七対子・平和ツモ以外は最低30符
-  return rounded === 20 ? 30 : rounded;
+  return roundUpToTens(fu);
 };
 
 const detectYaku = (opts: {
@@ -404,6 +441,12 @@ export const calculateScore = (opts: {
 
   const allTiles = [...opts.concealedTiles, ...tilesFromSets(openSetShapes)];
 
+  const preWinConcealedTiles = removeOneTile(opts.concealedTiles, opts.winTile);
+  const possibleWinTiles = listPossibleWinTiles({
+    preWinConcealedTiles,
+    openSetCount: openSetShapes.length,
+  });
+
   // special: chiitoi only possible when menzen
   const chiitoiPossible = isMenzen && isChiitoi(opts.concealedTiles);
 
@@ -422,19 +465,26 @@ export const calculateScore = (opts: {
   if (requiredConcealedSetCount >= 0) {
     const shapes = extractAllConcealedShapes(opts.concealedTiles, requiredConcealedSetCount, opts.winTile);
     for (const s of shapes) {
+      // "Nobetan" wait: if the hand is a one-tile wait but this fixed decomposition looks like ryanmen,
+      // treat it as 2符.
+      const normalizedWinTile = baseTile(opts.winTile);
+      const isSingleTileWait = possibleWinTiles.size === 1 && possibleWinTiles.has(normalizedWinTile);
+      const waitFu = isSingleTileWait && s.waitFu === 0 ? 2 : s.waitFu;
       candidateShapes.push({
         ...s,
+        waitFu,
+        isPinfuWait: waitFu === 0,
         sets: [...openSetShapes, ...s.sets],
       });
     }
   }
 
   if (!candidateShapes.length) {
-    // Fallback: still return dora-only score with 30符固定 (should not normally happen)
+    // Fallback: still return dora-only score (should not normally happen)
     const doraHan = countDora(allTiles, opts.doraIndicators);
     const uraDoraHan = opts.isRiichi ? countDora(allTiles, opts.uraIndicators) : 0;
     const han = doraHan + uraDoraHan;
-    const fu = 30;
+    const fu = 20;
     const limit = detectLimitName(han, fu);
     const base = limit ? limit.base : fu * Math.pow(2, han + 2);
     return {
