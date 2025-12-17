@@ -43,6 +43,7 @@ next-env.d.ts
 # local dev process artifacts
 dev.log
 dev.pid
+dev.local.log
 
 # ad-hoc sanity test build artifacts
 /.tmp_sanity/

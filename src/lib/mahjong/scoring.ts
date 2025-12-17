@@ -28,17 +28,6 @@ export type ScoreResult = {
   uraDoraHan: number;
 };
 
-const countTiles = (tiles: TileId[]) => {
-  const counts: Record<string, number> = {};
-  for (const t of tiles) {
-    const base = t.split('_')[0]!;
-    counts[base] = (counts[base] || 0) + 1;
-  }
-  return counts;
-};
-
-const cloneCounts = (counts: Record<string, number>) => ({ ...counts });
-
 const parseBaseAndRed = (t: TileId): { base: TileId; isRed: boolean } => {
   const dashParts = t.split('-');
   if (dashParts.length >= 3) {
@@ -59,6 +48,18 @@ const parseBaseAndRed = (t: TileId): { base: TileId; isRed: boolean } => {
 };
 
 const baseTile = (t: TileId) => parseBaseAndRed(t).base;
+
+const countTiles = (tiles: TileId[]) => {
+  const counts: Record<string, number> = {};
+  for (const t of tiles) {
+    const base = baseTile(t);
+    counts[base] = (counts[base] || 0) + 1;
+  }
+  return counts;
+};
+
+const cloneCounts = (counts: Record<string, number>) => ({ ...counts });
+
 const isHonor = (t: TileId) => baseTile(t)[0] === 'z';
 const tileNumber = (t: TileId) => parseInt(baseTile(t).slice(1), 10);
 const isTerminal = (t: TileId) => !isHonor(t) && (tileNumber(t) === 1 || tileNumber(t) === 9);
@@ -77,8 +78,13 @@ export const nextDoraTile = (indicator: TileId): TileId => {
     return `${suit}${next}`;
   }
   if (suit === 'z') {
-    if (num >= 1 && num <= 4) return `z${num === 4 ? 1 : num + 1}`;
-    if (num >= 5 && num <= 7) return `z${num === 7 ? 5 : num + 1}`;
+    // Winds: 東(Ton) → 南(Nan) → 西(Sha) → 北(Pei) → 東(Ton)
+    const winds: TileId[] = ['z1', 'z2', 'z3', 'z4'];
+    // Dragons: 白(Haku) → 發(Hatsu) → 中(Chun) → 白(Haku)
+    const dragons: TileId[] = ['z5', 'z6', 'z7'];
+
+    if (winds.includes(base)) return winds[(winds.indexOf(base) + 1) % winds.length]!;
+    if (dragons.includes(base)) return dragons[(dragons.indexOf(base) + 1) % dragons.length]!;
   }
   return base;
 };

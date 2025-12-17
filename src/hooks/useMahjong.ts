@@ -55,6 +55,8 @@ const ROUNDS: RoundInfo[] = [
 
 const INITIAL_POINTS = 25000;
 const MAX_JUN = 18; // 約17~18巡で流局
+const RIICHI_COST = 1000;
+const TOBI_END_THRESHOLD = -100;
 
 const TILE_TYPES = {
   m: 9,
@@ -538,6 +540,8 @@ export const useMahjong = () => {
 
   const declareRiichi = useCallback(
     (who: Player, riverIndex: number) => {
+      // 900点以下はリーチできない（= 1000点未満では供託が払えない）
+      if ((scores[who] ?? 0) < RIICHI_COST) return;
       let alreadyDeclared = false;
       setRiichiState((r) => {
         if (r[who]) {
@@ -552,11 +556,11 @@ export const useMahjong = () => {
       setIppatsuEligible((i) => ({ ...i, [who]: true }));
       setRiichiIntent((i) => ({ ...i, [who]: false }));
       setRiichiDeclarationIndex((idx) => ({ ...idx, [who]: riverIndex }));
-      setScores((s) => ({ ...s, [who]: s[who] - 1000 }));
+      setScores((s) => ({ ...s, [who]: s[who] - RIICHI_COST }));
       setKyotaku((k) => k + 1);
       handleReaction('reach');
     },
-    [handleReaction, anyCallMade],
+    [handleReaction, anyCallMade, scores],
   );
 
   const cancelIppatsu = useCallback(() => {
@@ -608,24 +612,33 @@ export const useMahjong = () => {
 
   const nextRound = useCallback(() => {
     // Result overlay "Next": apply point transfer first.
-    setScores((s) => {
-      if (!roundResult?.winner || !roundResult.loser || roundResult.applied) return s;
-      const delta = roundResult.points;
-      if (delta <= 0) return s;
-      const winner = roundResult.winner;
-      const loser = roundResult.loser;
-      return {
-        ...s,
-        [winner]: s[winner] + delta + roundResult.kyotakuPoints,
-        [loser]: s[loser] - delta,
-      };
-    });
-    setRoundResult((r) => (r ? { ...r, applied: true } : r));
     if (!roundResult) return;
+    const tobi = (s: { player: number; opponent: number }) => s.player <= TOBI_END_THRESHOLD || s.opponent <= TOBI_END_THRESHOLD;
 
-    // 供託はアガリで回収（流局は持ち越し）
-    if (roundResult.winner && !roundResult.applied) {
-      setKyotaku(0);
+    if (roundResult?.winner && roundResult.loser && !roundResult.applied) {
+      const delta = roundResult.points;
+      if (delta > 0) {
+        const winner = roundResult.winner;
+        const loser = roundResult.loser;
+        const nextScores = {
+          ...scores,
+          [winner]: scores[winner] + delta + roundResult.kyotakuPoints,
+          [loser]: scores[loser] - delta,
+        };
+        setScores(nextScores);
+        setRoundResult((r) => (r ? { ...r, applied: true } : r));
+
+        // 供託はアガリで回収（流局は持ち越し）
+        setKyotaku(0);
+
+        // トビあり：どちらかが -100 以下になったら即終了
+        if (tobi(nextScores)) {
+          setGameState('match_end');
+          return;
+        }
+      } else {
+        setRoundResult((r) => (r ? { ...r, applied: true } : r));
+      }
     }
 
     const willRepeat = roundResult.willRepeat;
@@ -656,7 +669,7 @@ export const useMahjong = () => {
     const idx = roundIndex + 1;
     setRoundIndex(idx);
     startRound(idx);
-  }, [roundIndex, startRound, roundResult]);
+  }, [roundIndex, scores, startRound, roundResult]);
 
   const checkRyukyoku = useCallback(() => {
     if (!wallRef.current.length || drawCount >= MAX_JUN * 2) {
@@ -716,6 +729,8 @@ export const useMahjong = () => {
         setRiichiIntent((i) => ({ ...i, [who]: false }));
         return false;
       }
+      // 900点以下はリーチできない
+      if ((scores[who] ?? 0) < RIICHI_COST) return false;
       const hand = who === 'player' ? playerHand : opponentHand;
       const drawn = who === 'player' ? playerDrawn : opponentDrawn;
       const melds = who === 'player' ? playerMelds : opponentMelds;
@@ -723,7 +738,7 @@ export const useMahjong = () => {
       setRiichiIntent((i) => ({ ...i, [who]: true }));
       return true;
     },
-    [riichiState, riichiIntent, playerHand, opponentHand, playerDrawn, opponentDrawn, playerMelds, opponentMelds],
+    [riichiState, riichiIntent, scores, playerHand, opponentHand, playerDrawn, opponentDrawn, playerMelds, opponentMelds],
   );
 
   const handleWin = useCallback(
@@ -1307,7 +1322,11 @@ const opponentDiscard = useCallback(
       // リーチ判定
       if (!opponentMelds.length && !riichiState.opponent) {
         const remaining = Math.max(0, MAX_JUN * 2 - drawCount);
-        if (remaining > 0 && canDeclareRiichiFromHand(opponentHand, drawnTile, opponentMelds, false)) {
+        if (
+          remaining > 0 &&
+          (scores.opponent ?? 0) >= RIICHI_COST &&
+          canDeclareRiichiFromHand(opponentHand, drawnTile, opponentMelds, false)
+        ) {
           declaredIntent = true;
         }
       }
@@ -1344,6 +1363,7 @@ const opponentDiscard = useCallback(
     opponentMelds,
     handleWin,
     riichiState.opponent,
+    scores.opponent,
     drawCount,
     opponentDiscard,
     canRonOnDiscard,

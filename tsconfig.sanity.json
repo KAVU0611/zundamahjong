@@ -10,6 +10,5 @@
     "outDir": ".tmp_sanity",
     "rootDir": "."
   },
-  "include": ["scripts/fu_sanity.ts"]
+  "include": ["scripts/fu_sanity.ts", "scripts/dora_sanity.ts"]
 }
-
