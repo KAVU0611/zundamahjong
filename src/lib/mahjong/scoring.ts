@@ -39,7 +39,26 @@ const countTiles = (tiles: TileId[]) => {
 
 const cloneCounts = (counts: Record<string, number>) => ({ ...counts });
 
-const baseTile = (t: TileId) => t.split('_')[0]!;
+const parseBaseAndRed = (t: TileId): { base: TileId; isRed: boolean } => {
+  const dashParts = t.split('-');
+  if (dashParts.length >= 3) {
+    const [type, numStr, indexStr] = dashParts;
+    const number = parseInt(numStr ?? '', 10);
+    const index = parseInt(indexStr ?? '', 10);
+    const suit = type === 'man' ? 'm' : type === 'pin' ? 'p' : type === 'sou' ? 's' : type === 'honor' ? 'z' : null;
+    if (suit && Number.isFinite(number)) {
+      return {
+        base: `${suit}${number}`,
+        isRed: (type === 'man' || type === 'pin' || type === 'sou') && number === 5 && index === 0,
+      };
+    }
+  }
+  const base = t.split('_')[0]!;
+  const isRed = t.includes('_dora_') || t.endsWith('_dora') || t.endsWith('_red');
+  return { base, isRed };
+};
+
+const baseTile = (t: TileId) => parseBaseAndRed(t).base;
 const isHonor = (t: TileId) => baseTile(t)[0] === 'z';
 const tileNumber = (t: TileId) => parseInt(baseTile(t).slice(1), 10);
 const isTerminal = (t: TileId) => !isHonor(t) && (tileNumber(t) === 1 || tileNumber(t) === 9);
@@ -72,13 +91,11 @@ const countDora = (tiles: TileId[], indicators: TileId[]) => {
   return total;
 };
 
-const countAkaDora = (tiles: TileId[]) => {
-  // Red fives are encoded as e.g. "m5_dora_0" and count as 1 han each.
-  return tiles.filter((t) => {
-    const base = baseTile(t);
-    return (base === 'm5' || base === 'p5' || base === 's5') && t.includes('_dora_');
+const countAkaDora = (tiles: TileId[]) =>
+  tiles.filter((t) => {
+    const parsed = parseBaseAndRed(t);
+    return (parsed.base === 'm5' || parsed.base === 'p5' || parsed.base === 's5') && parsed.isRed;
   }).length;
-};
 
 type SetShape =
   | { kind: 'sequence'; tiles: [TileId, TileId, TileId]; open: boolean }

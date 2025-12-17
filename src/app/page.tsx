@@ -42,11 +42,27 @@ const TILE_ID_TO_IMAGE_MAP: Record<string, string> = {
   z7: 'Chun',
 };
 
-const tileBaseId = (tileId: TileId): TileId => tileId.split('_')[0]!;
-const isAkaDoraTile = (tileId: TileId) => {
-  const base = tileBaseId(tileId);
-  return (base === 'm5' || base === 'p5' || base === 's5') && tileId.includes('_dora_');
+const parseTileIdForDisplay = (tileId: TileId): { base: TileId; isRed: boolean } => {
+  const dashParts = tileId.split('-');
+  if (dashParts.length >= 3) {
+    const [type, numStr, indexStr] = dashParts;
+    const number = parseInt(numStr ?? '', 10);
+    const index = parseInt(indexStr ?? '', 10);
+    const suit = type === 'man' ? 'm' : type === 'pin' ? 'p' : type === 'sou' ? 's' : type === 'honor' ? 'z' : null;
+    if (suit && Number.isFinite(number)) {
+      return {
+        base: `${suit}${number}`,
+        isRed: (type === 'man' || type === 'pin' || type === 'sou') && number === 5 && index === 0,
+      };
+    }
+  }
+  const base = tileId.split('_')[0]!;
+  const isRed = tileId.includes('_dora_') || tileId.endsWith('_dora') || tileId.endsWith('_red');
+  return { base, isRed };
 };
+
+const tileBaseId = (tileId: TileId): TileId => parseTileIdForDisplay(tileId).base;
+const isAkaDoraTile = (tileId: TileId) => parseTileIdForDisplay(tileId).isRed;
 const getTilePath = (tileId: TileId): string => {
   const base = tileBaseId(tileId);
   if (isAkaDoraTile(tileId)) {
@@ -126,7 +142,7 @@ const MeldView: React.FC<{ tiles: TileId[] }> = ({ tiles }) => {
   return (
     <div className="flex gap-1">
       {tiles.map((t, i) => (
-        <Tile key={`${t}-${i}`} tileId={t} className="cursor-default transform-none" />
+        <Tile key={t} tileId={t} className="cursor-default transform-none" />
       ))}
     </div>
   );
@@ -238,7 +254,7 @@ export default function MahjongPage() {
     const prevCount = prevPlayerRiverCountRef.current;
     if (playerRiver.length > prevCount) {
       const last = playerRiver[playerRiver.length - 1];
-      if (last && doraTiles.includes(tileBaseId(last))) playVoice('zunda_dora');
+      if (last && doraTiles.includes(last.base)) playVoice('zunda_dora');
     }
     prevPlayerRiverCountRef.current = playerRiver.length;
   }, [playerRiver, doraTiles, playVoice]);
@@ -380,8 +396,8 @@ export default function MahjongPage() {
             <div className="flex flex-wrap items-center justify-center gap-1 p-2 bg-green-950/50 rounded-lg border border-green-700/40">
               {opponentRiver.map((tile, i) => (
                 <Tile
-                  key={i}
-                  tileId={tile}
+                  key={tile.id}
+                  tileId={tile.tileId}
                   muted={calledRiverIndices.opponent.includes(i)}
                   horizontal={riichiDeclarationIndex.opponent === i}
                   className="w-7 h-10 sm:w-8 sm:h-12 shadow-none cursor-default transform-none"
@@ -415,8 +431,8 @@ export default function MahjongPage() {
             <div className="flex flex-wrap items-center justify-center gap-1 p-2 bg-green-950/50 rounded-lg border border-green-700/40">
               {playerRiver.map((tile, i) => (
                 <Tile
-                  key={i}
-                  tileId={tile}
+                  key={tile.id}
+                  tileId={tile.tileId}
                   muted={calledRiverIndices.player.includes(i)}
                   horizontal={riichiDeclarationIndex.player === i}
                   className="w-7 h-10 sm:w-8 sm:h-12 shadow-none cursor-default transform-none"
@@ -430,7 +446,7 @@ export default function MahjongPage() {
               <div className="flex items-center gap-1 flex-nowrap overflow-x-auto">
                 {playerHand.map((tile, i) => (
                   <Tile
-                    key={`${tile}-${i}`}
+                    key={tile}
                     tileId={tile}
                     onClick={
                       gameState === 'player_turn' && !riichiState.player

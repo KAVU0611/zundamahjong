@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { calculateScore, nextDoraTile, type ScoreResult, type WinMethod } from '../lib/mahjong/scoring';
 
 export type TileId = string;
+type TileType = 'man' | 'pin' | 'sou' | 'honor';
+type TileSpec = { type: TileType; number: number; index: number; id: TileId; isRed: boolean };
+type RiverEntry = { id: string; tileId: TileId; base: string; isRed: boolean };
 
 export type GameState =
   | 'waiting'
@@ -58,7 +61,28 @@ const TILE_TYPES = {
   z: 7,
 };
 
-const tileBase = (tileId: TileId): TileId => tileId.split('_')[0]!;
+const parseTileId = (tileId: TileId): { base: TileId; isRed: boolean } => {
+  // New format: `${type}-${number}-${index}` (e.g. man-5-0)
+  const dashParts = tileId.split('-');
+  if (dashParts.length >= 3) {
+    const [type, numStr, indexStr] = dashParts;
+    const number = parseInt(numStr ?? '', 10);
+    const index = parseInt(indexStr ?? '', 10);
+    const suit = type === 'man' ? 'm' : type === 'pin' ? 'p' : type === 'sou' ? 's' : type === 'honor' ? 'z' : null;
+    if (suit && Number.isFinite(number)) {
+      const base = `${suit}${number}`;
+      const isRed = (type === 'man' || type === 'pin' || type === 'sou') && number === 5 && index === 0;
+      return { base, isRed };
+    }
+  }
+  // Legacy formats: `m5_0`, `m5_dora_0`, or base like `m5`
+  const base = tileId.split('_')[0]!;
+  const isRed = tileId.includes('_dora_') || tileId.endsWith('_dora') || tileId.endsWith('_red');
+  return { base, isRed };
+};
+
+const tileBase = (tileId: TileId): TileId => parseTileId(tileId).base;
+const isRedTile = (tileId: TileId) => parseTileId(tileId).isRed;
 
 const allTileIds: TileId[] = (() => {
   const ids: TileId[] = [];
@@ -70,50 +94,109 @@ const allTileIds: TileId[] = (() => {
   return ids;
 })();
 
-const assertWallIsValid = (wall: TileId[]) => {
-  if (wall.length !== 136) {
-    throw new Error(`invalid wall length: expected 136, got ${wall.length}`);
+const countRedFives = (deck: TileSpec[]) =>
+  deck.filter((t) => (t.type === 'man' || t.type === 'pin' || t.type === 'sou') && t.number === 5 && t.index === 0).length;
+
+const validateDeck = (deck: TileSpec[]): TileSpec[] => {
+  // Repair duplicates/missing indices per (type, number) so that each group has exactly indexes 0..3 once.
+  const byKey: Record<string, TileSpec[]> = {};
+  for (const t of deck) {
+    const key = `${t.type}-${t.number}`;
+    byKey[key] = byKey[key] ?? [];
+    byKey[key]!.push(t);
   }
-  const uniques = new Set(wall);
-  if (uniques.size !== wall.length) {
-    throw new Error(`invalid wall: duplicate tile ids detected (unique ${uniques.size} != ${wall.length})`);
-  }
-  const byBase: Record<string, { total: number; red: number }> = {};
-  for (const t of wall) {
-    const base = tileBase(t);
-    byBase[base] = byBase[base] ?? { total: 0, red: 0 };
-    byBase[base]!.total += 1;
-    if (t.includes('_dora_')) byBase[base]!.red += 1;
-  }
-  for (const base of allTileIds) {
-    const entry = byBase[base] ?? { total: 0, red: 0 };
-    if (entry.total !== 4) {
-      throw new Error(`invalid wall: ${base} count expected 4, got ${entry.total}`);
+
+  const fixed: TileSpec[] = [];
+  let hadRedDup = false;
+
+  for (const [key, group] of Object.entries(byKey)) {
+    const [type, numStr] = key.split('-') as [TileType, string];
+    const number = parseInt(numStr, 10);
+    const used = new Set<number>();
+    const extras: TileSpec[] = [];
+    const kept: TileSpec[] = [];
+
+    for (const t of group) {
+      if (!used.has(t.index)) {
+        used.add(t.index);
+        kept.push(t);
+      } else {
+        extras.push(t);
+      }
     }
-    const isFive = base === 'm5' || base === 'p5' || base === 's5';
-    if (isFive) {
-      if (entry.red !== 1) throw new Error(`invalid wall: ${base} red count expected 1, got ${entry.red}`);
-    } else {
-      if (entry.red !== 0) throw new Error(`invalid wall: ${base} red count expected 0, got ${entry.red}`);
+
+    const missing: number[] = [];
+    for (let i = 0; i < 4; i++) if (!used.has(i)) missing.push(i);
+
+    // Reassign extras into missing slots by rewriting their id/index/isRed.
+    for (const t of extras) {
+      const m = missing.shift();
+      if (m === undefined) break;
+      if ((type === 'man' || type === 'pin' || type === 'sou') && number === 5 && t.index === 0) hadRedDup = true;
+      t.index = m;
+      t.id = `${type}-${number}-${m}`;
+      t.isRed = (type === 'man' || type === 'pin' || type === 'sou') && number === 5 && m === 0;
+      kept.push(t);
+    }
+
+    // If still missing, create new tiles.
+    for (const m of missing) {
+      kept.push({
+        type,
+        number,
+        index: m,
+        id: `${type}-${number}-${m}`,
+        isRed: (type === 'man' || type === 'pin' || type === 'sou') && number === 5 && m === 0,
+      });
+    }
+
+    // Normalize isRed to match rule (index 0 only).
+    for (const t of kept) {
+      t.isRed = (type === 'man' || type === 'pin' || type === 'sou') && number === 5 && t.index === 0;
+    }
+
+    fixed.push(...kept.slice(0, 4));
+  }
+
+  if (hadRedDup) {
+    // eslint-disable-next-line no-console
+    console.error('Duplicate Red 5 detected!');
+  }
+
+  // Ensure we have exactly 34 * 4 tiles and unique IDs.
+  const unique = new Map<string, TileSpec>();
+  for (const t of fixed) unique.set(t.id, t);
+  const result = Array.from(unique.values());
+
+  // eslint-disable-next-line no-console
+  console.log('Deck created. Red 5s count:', countRedFives(result));
+
+  return result;
+};
+
+const initializeDeck = (): TileSpec[] => {
+  const deck: TileSpec[] = [];
+  const defs: { type: TileType; max: number }[] = [
+    { type: 'man', max: 9 },
+    { type: 'pin', max: 9 },
+    { type: 'sou', max: 9 },
+    { type: 'honor', max: 7 },
+  ];
+  for (const def of defs) {
+    for (let number = 1; number <= def.max; number++) {
+      for (let index = 0; index < 4; index++) {
+        const isRed = (def.type === 'man' || def.type === 'pin' || def.type === 'sou') && number === 5 && index === 0;
+        deck.push({ type: def.type, number, index, id: `${def.type}-${number}-${index}`, isRed });
+      }
     }
   }
+  return validateDeck(deck);
 };
 
 const createInitialWall = (): TileId[] => {
-  // Strict 136-tile wall:
-  // - 34 bases (m1-9, p1-9, s1-9, z1-7)
-  // - each base generates exactly 4 physical tiles (unique IDs)
-  // - only the first copy of 5s is red (encoded with `_dora_`)
-  const wall: TileId[] = [];
-  for (const base of allTileIds) {
-    const isFive = base === 'm5' || base === 'p5' || base === 's5';
-    for (let copyIndex = 0; copyIndex < 4; copyIndex++) {
-      const isRed = isFive && copyIndex === 0;
-      wall.push(isRed ? `${base}_dora_${copyIndex}` : `${base}_${copyIndex}`);
-    }
-  }
-  // Dev-time validation (kept lightweight; throws loudly if generation breaks)
-  assertWallIsValid(wall);
+  const deck = initializeDeck();
+  const wall = deck.map((t) => t.id);
+  if (wall.length !== 136) throw new Error(`invalid wall length: expected 136, got ${wall.length}`);
 
   for (let i = wall.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -285,9 +368,9 @@ const getWinningTiles = (hand: TileId[]) => {
   return Array.from(waits);
 };
 
-const isFuriten = (hand: TileId[], river: TileId[]) => {
+const isFuriten = (hand: TileId[], river: RiverEntry[]) => {
   if (!river.length) return false;
-  const riverBases = new Set(river.map(tileBase));
+  const riverBases = new Set(river.map((r) => r.base));
   const waits = getWinningTiles(hand);
   return waits.some((tile) => riverBases.has(tile));
 };
@@ -309,8 +392,8 @@ export const useMahjong = () => {
   const [opponentHand, setOpponentHand] = useState<TileId[]>([]);
   const [playerMelds, setPlayerMelds] = useState<Meld[]>([]);
   const [opponentMelds, setOpponentMelds] = useState<Meld[]>([]);
-  const [playerRiver, setPlayerRiver] = useState<TileId[]>([]);
-  const [opponentRiver, setOpponentRiver] = useState<TileId[]>([]);
+  const [playerRiver, setPlayerRiver] = useState<RiverEntry[]>([]);
+  const [opponentRiver, setOpponentRiver] = useState<RiverEntry[]>([]);
   const [playerDrawn, setPlayerDrawn] = useState<TileId | null>(null);
   const [opponentDrawn, setOpponentDrawn] = useState<TileId | null>(null);
   const [currentTurn, setCurrentTurn] = useState<Player | null>(null);
@@ -411,6 +494,21 @@ export const useMahjong = () => {
     setDeclinedWinKey(null);
     setRoundResult(null);
     setReaction('none');
+  }, []);
+
+  const riverSeqRef = useRef(0);
+  const makeRiverEntry = useCallback((tileId: TileId): RiverEntry => {
+    const parsed = parseTileId(tileId);
+    const displayId =
+      parsed.isRed && (parsed.base === 'm5' || parsed.base === 'p5' || parsed.base === 's5')
+        ? `${parsed.base}_red`
+        : parsed.base;
+    return {
+      id: `river-${riverSeqRef.current++}`,
+      tileId: displayId,
+      base: parsed.base,
+      isRed: parsed.isRed,
+    };
   }, []);
 
   const startRound = useCallback(
@@ -968,7 +1066,7 @@ export const useMahjong = () => {
       setPlayerDrawn(nextDrawn);
       setPlayerHand(newHand);
       const discardIndex = playerRiver.length;
-      setPlayerRiver((r) => [...r, discard!]);
+      setPlayerRiver((r) => [...r, makeRiverEntry(discard!)]);
       if (riichiIntent.player && !riichiState.player) {
         // リーチ宣言準備中でも、切った後にテンパイを崩した場合はリーチしない（準備は解除）
         if (isTenpai(newHand)) {
@@ -1069,6 +1167,7 @@ export const useMahjong = () => {
       riichiState.player,
       noteCallMade,
       kuikaeForbiddenBase.player,
+      makeRiverEntry,
       opponentHand,
       canRonOnDiscard,
       handleWin,
@@ -1081,23 +1180,28 @@ export const useMahjong = () => {
     ],
   );
 
-  const opponentDiscard = useCallback(
+const opponentDiscard = useCallback(
     (drawnTile?: TileId | null, intentToDeclareRiichi?: boolean): TileId | null => {
       const tile = drawnTile ?? opponentDrawn;
       // リーチ中はツモ牌をツモ切りする
       if (riichiState.opponent && tile) {
         setIppatsuEligible((i) => ({ ...i, opponent: false }));
         setOpponentDrawn(null);
-        setOpponentRiver((r) => [...r, tile]);
+        setOpponentRiver((r) => [...r, makeRiverEntry(tile)]);
         return tile;
       }
       const fullHand = tile ? [...opponentHand, tile] : [...opponentHand];
       if (!fullHand.length) return null;
       const pickRiichiDiscard = () => {
+        const candidates: number[] = [];
         for (let i = 0; i < fullHand.length; i++) {
           const after = fullHand.filter((_, j) => j !== i);
-          if (isTenpai(after)) return i;
+          if (isTenpai(after)) candidates.push(i);
         }
+        // Prefer discarding non-red tiles when possible
+        const nonRed = candidates.filter((i) => !isRedTile(fullHand[i]!));
+        if (nonRed.length) return nonRed[0]!;
+        if (candidates.length) return candidates[0]!;
         return null;
       };
       const forbidBase = kuikaeForbiddenBase.opponent;
@@ -1110,14 +1214,16 @@ export const useMahjong = () => {
       }
       if (discardIndex === null) {
         const candidates = fullHand.map((_, i) => i).filter(canDiscardIndex);
-        discardIndex = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)]! : Math.floor(Math.random() * fullHand.length);
+        const nonRedCandidates = candidates.filter((i) => !isRedTile(fullHand[i]!));
+        const pool = nonRedCandidates.length ? nonRedCandidates : candidates;
+        discardIndex = pool.length ? pool[Math.floor(Math.random() * pool.length)]! : Math.floor(Math.random() * fullHand.length);
       }
 
       const discard = fullHand.splice(discardIndex, 1)[0];
       setOpponentHand(fullHand.sort(sortHand));
       setOpponentDrawn(null);
       const riverIndex = opponentRiver.length;
-      setOpponentRiver((r) => [...r, discard]);
+      setOpponentRiver((r) => [...r, makeRiverEntry(discard)]);
       if (kuikaeForbiddenBase.opponent) setKuikaeForbiddenBase((k) => ({ ...k, opponent: null }));
       if ((intentToDeclareRiichi || riichiIntent.opponent) && !riichiState.opponent) {
         if (isTenpai(fullHand)) {
@@ -1128,7 +1234,7 @@ export const useMahjong = () => {
       }
       return discard;
     },
-    [opponentDrawn, opponentHand, opponentRiver, riichiIntent.opponent, riichiState.opponent, declareRiichi, kuikaeForbiddenBase.opponent],
+    [opponentDrawn, opponentHand, opponentRiver, riichiIntent.opponent, riichiState.opponent, declareRiichi, kuikaeForbiddenBase.opponent, makeRiverEntry],
   );
 
   const opponentTurn = useCallback(() => {
