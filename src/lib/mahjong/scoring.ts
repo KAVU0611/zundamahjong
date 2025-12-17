@@ -93,8 +93,6 @@ type HandShape = {
   isPinfuWait: boolean;
 };
 
-const isBlank = (t: TileId) => baseTile(t) === 'blank';
-
 const removeOneTile = (tiles: TileId[], target: TileId): TileId[] => {
   const targetBase = baseTile(target);
   const out: TileId[] = [];
@@ -564,7 +562,7 @@ export const calculateScore = (opts: {
   const openSetShapes = buildMeldShapes(opts.melds);
 
   const meldTileInstances = opts.melds.flatMap((m) => m.tiles);
-  const allTiles = [...opts.concealedTiles, ...meldTileInstances].filter((t) => !isBlank(t));
+  const allTiles = [...opts.concealedTiles, ...meldTileInstances];
 
   const preWinConcealedTiles = removeOneTile(opts.concealedTiles, opts.winTile);
   const possibleWinTiles = listPossibleWinTiles({

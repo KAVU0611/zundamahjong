@@ -6,7 +6,6 @@ import { useMahjong, TileId } from '../hooks/useMahjong';
 import { useSounds } from '../hooks/useSounds';
 
 const TILE_ID_TO_IMAGE_MAP: Record<string, string> = {
-  blank: 'Blank',
   m1: 'Man1',
   m2: 'Man2',
   m3: 'Man3',

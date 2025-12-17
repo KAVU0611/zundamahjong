@@ -781,11 +781,12 @@ export const useMahjong = () => {
 	      }
 
 	      noteCallMade();
-	      // 鳴いた牌は河から取り除く（見た目/枚数の整合性用にBlankへ置換）
+	      // 鳴いた牌は河に「鳴かれた記録」として残す（同じTileIdの重複を避ける）
 	      setOpponentRiver((r) => {
-	        if (!r.length) return r;
+	        const idx = r.lastIndexOf(tile);
+	        if (idx === -1) return r;
 	        const next = [...r];
-	        next[next.length - 1] = 'blank';
+	        next[idx] = `${tile}_called`;
 	        return next;
 	      });
 	
@@ -894,9 +895,9 @@ export const useMahjong = () => {
         if (choose === 'kan') {
           noteCallMade();
           setPlayerRiver((r) => {
-            if (discardIndex < 0 || discardIndex >= r.length) return r;
+            if (!r.length) return r;
             const next = [...r];
-            next[discardIndex] = 'blank';
+            next[next.length - 1] = `${discard}_called`;
             return next;
           });
           const tile = discard;
@@ -916,9 +917,9 @@ export const useMahjong = () => {
         if (choose === 'pon') {
           noteCallMade();
           setPlayerRiver((r) => {
-            if (discardIndex < 0 || discardIndex >= r.length) return r;
+            if (!r.length) return r;
             const next = [...r];
-            next[discardIndex] = 'blank';
+            next[next.length - 1] = `${discard}_called`;
             return next;
           });
           const tile = discard;
@@ -936,9 +937,9 @@ export const useMahjong = () => {
         if (choose === 'chi') {
           noteCallMade();
           setPlayerRiver((r) => {
-            if (discardIndex < 0 || discardIndex >= r.length) return r;
+            if (!r.length) return r;
             const next = [...r];
-            next[discardIndex] = 'blank';
+            next[next.length - 1] = `${discard}_called`;
             return next;
           });
           const option = opponentChi[0];
