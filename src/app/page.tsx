@@ -70,7 +70,13 @@ const Tile: React.FC<TileProps> = ({ tileId, isBack = false, onClick, className 
     );
   }
 
-  if (!tileId) return null;
+  if (!tileId) {
+    return (
+      <div
+        className={`${baseStyle} ${thicknessStyle} ${orientationStyle} relative bg-green-950/20 border border-green-700/30 ${className}`}
+      />
+    );
+  }
 
   return (
     <div
@@ -114,7 +120,7 @@ const Zundamon: React.FC<{ mode: keyof typeof ZUNDAMON_STATES }> = ({ mode }) =>
 const MeldView: React.FC<{ tiles: TileId[] }> = ({ tiles }) => {
   return (
     <div className="flex gap-1">
-      {tiles.map((t, i) => (
+      {tiles.map((t) => (
         <Tile key={t} tileId={t} className="cursor-default transform-none" />
       ))}
     </div>
@@ -186,7 +192,6 @@ export default function MahjongPage() {
   const { playSe, playVoice } = useSounds();
   const isPlayerDealer = round?.dealer === 'player';
   const isOpponentDealer = round?.dealer === 'opponent';
-  const [ronConfirmOpen, setRonConfirmOpen] = React.useState(false);
   const [kanSelectOpen, setKanSelectOpen] = React.useState(false);
   const prevOpponentMeldCountRef = React.useRef(0);
   const prevOpponentRiichiRef = React.useRef(false);
@@ -196,10 +201,6 @@ export default function MahjongPage() {
   const prevRoundResultKeyRef = React.useRef<string | null>(null);
   const slowWarnedRef = React.useRef(false);
   const tileAssetsPreloadedRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (!callPrompt) setRonConfirmOpen(false);
-  }, [callPrompt]);
 
   React.useEffect(() => {
     if (tileAssetsPreloadedRef.current) return;
@@ -512,7 +513,7 @@ export default function MahjongPage() {
           </section>
         </div>
       </div>
-      {callPrompt && (
+      {callPrompt && !roundResult && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-20">
           <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
             <p className="font-bold mb-2">
@@ -525,7 +526,8 @@ export default function MahjongPage() {
                 <button
                   className="px-3 py-2 bg-red-500 text-white rounded"
                   onClick={() => {
-                    setRonConfirmOpen(true);
+                    playSe('click');
+                    resolveCall('ron');
                   }}
                 >
                   ロン
@@ -609,35 +611,6 @@ export default function MahjongPage() {
                 }}
               >
                 キャンセル
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {callPrompt && ronConfirmOpen && callPrompt.canRon && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-30">
-          <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
-            <p className="font-bold mb-3">ロンしますか？</p>
-            <div className="flex gap-2 justify-end">
-              <button
-                className="px-3 py-2 bg-gray-200 rounded"
-                onClick={() => {
-                  playSe('click');
-                  setRonConfirmOpen(false);
-                }}
-              >
-                いいえ
-              </button>
-              <button
-                className="px-3 py-2 bg-red-500 text-white rounded"
-                onClick={() => {
-                  playSe('click');
-                  setRonConfirmOpen(false);
-                  resolveCall('ron');
-                }}
-              >
-                はい
               </button>
             </div>
           </div>

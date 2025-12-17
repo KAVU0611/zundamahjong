@@ -592,6 +592,7 @@ export const calculateScore = (opts: {
 
   const candidateShapes: HandShape[] = [];
   if (chiitoiPossible) {
+    // Prefer scoring as 七対子 when the hand qualifies (25符固定).
     candidateShapes.push({
       isSevenPairs: true,
       pairTile: null,
@@ -599,23 +600,23 @@ export const calculateScore = (opts: {
       waitFu: 0,
       isPinfuWait: false,
     });
-  }
-
-  const requiredConcealedSetCount = 4 - openSetShapes.length;
-  if (requiredConcealedSetCount >= 0) {
-    const shapes = extractAllConcealedShapes(opts.concealedTiles, requiredConcealedSetCount, opts.winTile);
-    for (const s of shapes) {
-      // "Nobetan" wait: if the hand is a one-tile wait but this fixed decomposition looks like ryanmen,
-      // treat it as 2符.
-      const normalizedWinTile = baseTile(opts.winTile);
-      const isSingleTileWait = possibleWinTiles.size === 1 && possibleWinTiles.has(normalizedWinTile);
-      const waitFu = isSingleTileWait && s.waitFu === 0 ? 2 : s.waitFu;
-      candidateShapes.push({
-        ...s,
-        waitFu,
-        isPinfuWait: waitFu === 0,
-        sets: [...openSetShapes, ...s.sets],
-      });
+  } else {
+    const requiredConcealedSetCount = 4 - openSetShapes.length;
+    if (requiredConcealedSetCount >= 0) {
+      const shapes = extractAllConcealedShapes(opts.concealedTiles, requiredConcealedSetCount, opts.winTile);
+      for (const s of shapes) {
+        // "Nobetan" wait: if the hand is a one-tile wait but this fixed decomposition looks like ryanmen,
+        // treat it as 2符.
+        const normalizedWinTile = baseTile(opts.winTile);
+        const isSingleTileWait = possibleWinTiles.size === 1 && possibleWinTiles.has(normalizedWinTile);
+        const waitFu = isSingleTileWait && s.waitFu === 0 ? 2 : s.waitFu;
+        candidateShapes.push({
+          ...s,
+          waitFu,
+          isPinfuWait: waitFu === 0,
+          sets: [...openSetShapes, ...s.sets],
+        });
+      }
     }
   }
 

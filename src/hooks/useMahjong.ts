@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { calculateScore, nextDoraTile, type ScoreResult, type WinMethod } from '../lib/mahjong/scoring';
+import { createShuffledWall } from '../lib/mahjong/wall';
 
 export type TileId = string;
-type TileType = 'man' | 'pin' | 'sou' | 'honor';
-type TileSpec = { type: TileType; number: number; index: number; id: TileId; isRed: boolean };
-type RiverEntry = { id: string; tileId: TileId; base: string; isRed: boolean };
+type RiverEntry = { id: string; tileId: TileId | null; base: string; isRed: boolean; called: boolean };
 
 export type GameState =
   | 'waiting'
@@ -96,133 +95,6 @@ const allTileIds: TileId[] = (() => {
   }
   return ids;
 })();
-
-const countRedFives = (deck: TileSpec[]) =>
-  deck.filter((t) => (t.type === 'man' || t.type === 'pin' || t.type === 'sou') && t.number === 5 && t.index === 0).length;
-
-const validateDeck = (deck: TileSpec[]): TileSpec[] => {
-  // Sanitize: physically enforce "max 4 tiles per kind" for all 34 kinds.
-  // If a kind appears 5+ times, drop extras immediately and warn.
-  const scannedCounts: Record<string, number> = {};
-  const sanitized: TileSpec[] = [];
-  for (const t of deck) {
-    const key = `${t.type}-${t.number}`;
-    const nextCount = (scannedCounts[key] ?? 0) + 1;
-    scannedCounts[key] = nextCount;
-    if (nextCount > 4) {
-      // eslint-disable-next-line no-console
-      console.warn(`Warning: Removed extra tile ${key} (Count: ${nextCount})`);
-      continue;
-    }
-    sanitized.push(t);
-  }
-
-  // Repair duplicates/missing indices per (type, number) so that each group has exactly indexes 0..3 once.
-  const byKey: Record<string, TileSpec[]> = {};
-  for (const t of sanitized) {
-    const key = `${t.type}-${t.number}`;
-    byKey[key] = byKey[key] ?? [];
-    byKey[key]!.push(t);
-  }
-
-  const fixed: TileSpec[] = [];
-  let hadRedDup = false;
-
-  for (const [key, group] of Object.entries(byKey)) {
-    const [type, numStr] = key.split('-') as [TileType, string];
-    const number = parseInt(numStr, 10);
-    const used = new Set<number>();
-    const extras: TileSpec[] = [];
-    const kept: TileSpec[] = [];
-
-    for (const t of group) {
-      if (!used.has(t.index)) {
-        used.add(t.index);
-        kept.push(t);
-      } else {
-        extras.push(t);
-      }
-    }
-
-    const missing: number[] = [];
-    for (let i = 0; i < 4; i++) if (!used.has(i)) missing.push(i);
-
-    // Reassign extras into missing slots by rewriting their id/index/isRed.
-    for (const t of extras) {
-      const m = missing.shift();
-      if (m === undefined) break;
-      if ((type === 'man' || type === 'pin' || type === 'sou') && number === 5 && t.index === 0) hadRedDup = true;
-      t.index = m;
-      t.id = `${type}-${number}-${m}`;
-      t.isRed = (type === 'man' || type === 'pin' || type === 'sou') && number === 5 && m === 0;
-      kept.push(t);
-    }
-
-    // If still missing, create new tiles.
-    for (const m of missing) {
-      kept.push({
-        type,
-        number,
-        index: m,
-        id: `${type}-${number}-${m}`,
-        isRed: (type === 'man' || type === 'pin' || type === 'sou') && number === 5 && m === 0,
-      });
-    }
-
-    // Normalize isRed to match rule (index 0 only).
-    for (const t of kept) {
-      t.isRed = (type === 'man' || type === 'pin' || type === 'sou') && number === 5 && t.index === 0;
-    }
-
-    fixed.push(...kept.slice(0, 4));
-  }
-
-  if (hadRedDup) {
-    // eslint-disable-next-line no-console
-    console.error('Duplicate Red 5 detected!');
-  }
-
-  // Ensure we have exactly 34 * 4 tiles and unique IDs.
-  const unique = new Map<string, TileSpec>();
-  for (const t of fixed) unique.set(t.id, t);
-  const result = Array.from(unique.values());
-
-  // eslint-disable-next-line no-console
-  console.log('Deck created. Red 5s count:', countRedFives(result));
-
-  return result;
-};
-
-const initializeDeck = (): TileSpec[] => {
-  const deck: TileSpec[] = [];
-  const defs: { type: TileType; max: number }[] = [
-    { type: 'man', max: 9 },
-    { type: 'pin', max: 9 },
-    { type: 'sou', max: 9 },
-    { type: 'honor', max: 7 },
-  ];
-  for (const def of defs) {
-    for (let number = 1; number <= def.max; number++) {
-      for (let index = 0; index < 4; index++) {
-        const isRed = (def.type === 'man' || def.type === 'pin' || def.type === 'sou') && number === 5 && index === 0;
-        deck.push({ type: def.type, number, index, id: `${def.type}-${number}-${index}`, isRed });
-      }
-    }
-  }
-  return validateDeck(deck);
-};
-
-const createInitialWall = (): TileId[] => {
-  const deck = initializeDeck();
-  const wall = deck.map((t) => t.id);
-  if (wall.length !== 136) throw new Error(`invalid wall length: expected 136, got ${wall.length}`);
-
-  for (let i = wall.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [wall[i], wall[j]] = [wall[j], wall[i]];
-  }
-  return wall;
-};
 
 const sortHand = (a: TileId, b: TileId) => a.localeCompare(b);
 
@@ -407,6 +279,12 @@ export const useMahjong = () => {
   const [uraIndicators, setUraIndicators] = useState<TileId[]>([]);
   const [drawCount, setDrawCount] = useState(0);
 
+  const wallRef = useRef<TileId[]>([]);
+  const deadWallRef = useRef<TileId[]>([]);
+  const doraIndicatorsRef = useRef<TileId[]>([]);
+  const uraIndicatorsRef = useRef<TileId[]>([]);
+  const kanActionLockRef = useRef(false);
+
   const [playerHand, setPlayerHand] = useState<TileId[]>([]);
   const [opponentHand, setOpponentHand] = useState<TileId[]>([]);
   const [playerMelds, setPlayerMelds] = useState<Meld[]>([]);
@@ -476,6 +354,55 @@ export const useMahjong = () => {
   const round = ROUNDS[roundIndex];
   const doraTiles = useMemo(() => doraIndicators.map(nextDoraTile), [doraIndicators]);
   const uraDoraTiles = useMemo(() => uraIndicators.map(nextDoraTile), [uraIndicators]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    // Round init/transition uses multiple setState calls; validate only during active turns to avoid transient false positives.
+    if (gameState !== 'player_turn' && gameState !== 'opponent_turn') return;
+
+    const tiles: TileId[] = [];
+    tiles.push(...wall);
+    tiles.push(...deadWall);
+    tiles.push(...doraIndicators);
+    tiles.push(...uraIndicators);
+    tiles.push(...playerHand);
+    tiles.push(...opponentHand);
+    if (playerDrawn) tiles.push(playerDrawn);
+    if (opponentDrawn) tiles.push(opponentDrawn);
+    tiles.push(...playerMelds.flatMap((m) => m.tiles));
+    tiles.push(...opponentMelds.flatMap((m) => m.tiles));
+    tiles.push(...playerRiver.filter((r) => !r.called).map((r) => r.base));
+    tiles.push(...opponentRiver.filter((r) => !r.called).map((r) => r.base));
+
+    const counts = countTiles(tiles);
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    // `resetRoundState()`直後など、一瞬だけ全部空になるタイミングがあるので無視する。
+    if (total === 0) return;
+    const over = Object.entries(counts).filter(([, ct]) => ct > 4);
+    if (over.length) {
+      // eslint-disable-next-line no-console
+      console.error('Tile integrity violation (>4 copies):', over);
+    }
+
+    if (total !== 136) {
+      // eslint-disable-next-line no-console
+      console.error(`Tile integrity violation (total != 136): ${total}`);
+    }
+  }, [
+    gameState,
+    wall,
+    deadWall,
+    doraIndicators,
+    uraIndicators,
+    playerHand,
+    opponentHand,
+    playerDrawn,
+    opponentDrawn,
+    playerMelds,
+    opponentMelds,
+    playerRiver,
+    opponentRiver,
+  ]);
   const canRiichi = useMemo(
     () => ({
       player: canDeclareRiichiFromHand(playerHand, playerDrawn, playerMelds, riichiState.player),
@@ -485,6 +412,11 @@ export const useMahjong = () => {
   );
 
   const resetRoundState = useCallback(() => {
+    wallRef.current = [];
+    deadWallRef.current = [];
+    doraIndicatorsRef.current = [];
+    uraIndicatorsRef.current = [];
+    kanActionLockRef.current = false;
     setWall([]);
     setDeadWall([]);
     setDoraIndicators([]);
@@ -527,6 +459,7 @@ export const useMahjong = () => {
       tileId: displayId,
       base: parsed.base,
       isRed: parsed.isRed,
+      called: false,
     };
   }, []);
 
@@ -534,7 +467,11 @@ export const useMahjong = () => {
     (nextIndex?: number) => {
       const index = nextIndex ?? roundIndex;
       const info = ROUNDS[index];
-      const shuffled = createInitialWall();
+
+      // Reset first to avoid transient states where the wallRef is cleared after we set it.
+      resetRoundState();
+
+      const shuffled = createShuffledWall();
       const wallWithoutDead = shuffled.slice(0, -14);
       const dead = shuffled.slice(-14);
 
@@ -547,16 +484,19 @@ export const useMahjong = () => {
       const ura = remainingDead[uraIndex];
       remainingDead.splice(uraIndex, 1);
 
-      const newWall = [...wallWithoutDead];
-      const playerInit = newWall.splice(0, 13).sort(sortHand);
-      const opponentInit = newWall.splice(0, 13).sort(sortHand);
-      const firstDraw = newWall.shift();
+      const liveWall = [...wallWithoutDead];
+      const playerInit = liveWall.splice(0, 13).sort(sortHand);
+      const opponentInit = liveWall.splice(0, 13).sort(sortHand);
+      const firstDraw = liveWall.shift();
+      wallRef.current = liveWall;
 
-      resetRoundState();
-      setWall(newWall);
-      setDeadWall(remainingDead);
-      setDoraIndicators([indicator]);
-      setUraIndicators([ura]);
+      setWall([...wallRef.current]);
+      deadWallRef.current = [...remainingDead];
+      doraIndicatorsRef.current = [indicator];
+      uraIndicatorsRef.current = [ura];
+      setDeadWall([...deadWallRef.current]);
+      setDoraIndicators([...doraIndicatorsRef.current]);
+      setUraIndicators([...uraIndicatorsRef.current]);
       setPlayerHand(info.dealer === 'player' ? playerInit : opponentInit);
       setOpponentHand(info.dealer === 'player' ? opponentInit : playerInit);
       if (info.dealer === 'player') {
@@ -589,6 +529,11 @@ export const useMahjong = () => {
       current.add(index);
       return { ...c, [who]: Array.from(current).sort((a, b) => a - b) };
     });
+
+    const mark = (river: RiverEntry[]) =>
+      river.map((entry, i) => (i === index ? { ...entry, called: true, tileId: null } : entry));
+    if (who === 'player') setPlayerRiver(mark);
+    else setOpponentRiver(mark);
   }, []);
 
   const declareRiichi = useCallback(
@@ -624,15 +569,16 @@ export const useMahjong = () => {
   }, [cancelIppatsu]);
 
   const revealDoraIndicator = useCallback(() => {
-    setDeadWall((dw) => {
-      if (dw.length < 2) return dw;
-      const next = [...dw];
-      const ura = next.pop()!;
-      const ind = next.pop()!;
-      setDoraIndicators((d) => [...d, ind]);
-      setUraIndicators((u) => [...u, ura]);
-      return next;
-    });
+    if (deadWallRef.current.length < 2) return;
+    const nextDead = [...deadWallRef.current];
+    const ura = nextDead.pop()!;
+    const ind = nextDead.pop()!;
+    deadWallRef.current = nextDead;
+    doraIndicatorsRef.current = [...doraIndicatorsRef.current, ind];
+    uraIndicatorsRef.current = [...uraIndicatorsRef.current, ura];
+    setDeadWall([...deadWallRef.current]);
+    setDoraIndicators([...doraIndicatorsRef.current]);
+    setUraIndicators([...uraIndicatorsRef.current]);
   }, []);
 
   const endRound = useCallback(
@@ -713,7 +659,7 @@ export const useMahjong = () => {
   }, [roundIndex, startRound, roundResult]);
 
   const checkRyukyoku = useCallback(() => {
-    if (!wall.length || drawCount >= MAX_JUN * 2) {
+    if (!wallRef.current.length || drawCount >= MAX_JUN * 2) {
       const dealer = round.dealer;
       const dealerHand = dealer === 'player' ? playerHand : opponentHand;
       const dealerDrawn = dealer === 'player' ? playerDrawn : opponentDrawn;
@@ -736,7 +682,6 @@ export const useMahjong = () => {
     }
     return false;
   }, [
-    wall.length,
     drawCount,
     endRound,
     honba,
@@ -751,10 +696,9 @@ export const useMahjong = () => {
   const drawTileFor = useCallback(
     (who: Player) => {
       if (checkRyukyoku()) return null;
-      if (!wall.length) return null;
-
-      const [tile, ...rest] = wall;
-      setWall(rest);
+      const tile = wallRef.current.shift();
+      if (!tile) return null;
+      setWall([...wallRef.current]);
       setDrawCount((c) => c + 1);
 
       if (who === 'player') setPlayerDrawn(tile);
@@ -762,7 +706,7 @@ export const useMahjong = () => {
 
       return tile;
     },
-    [checkRyukyoku, wall],
+    [checkRyukyoku],
   );
 
   const handleRiichi = useCallback(
@@ -784,6 +728,11 @@ export const useMahjong = () => {
 
   const handleWin = useCallback(
     (winner: Player, reason: 'tsumo' | 'ron', winTile: TileId) => {
+      // Ensure any pending prompts are cleared; otherwise UI may re-show "Ron?" after accepting.
+      setCallPrompt(null);
+      setWinPrompt(null);
+      setDeclinedWinKey(null);
+
       const loser: Player = winner === 'player' ? 'opponent' : 'player';
       const winnerHand = winner === 'player' ? playerHand : opponentHand;
       const winnerMelds = winner === 'player' ? playerMelds : opponentMelds;
@@ -944,9 +893,18 @@ export const useMahjong = () => {
   const declareKan = useCallback(
     (base: TileId): boolean => {
       if (gameState !== 'player_turn') return false;
+      // Prevent double-trigger (e.g., double-click) which can reveal dora twice.
+      if (kanActionLockRef.current) return false;
+      kanActionLockRef.current = true;
+      const releaseLock = () => {
+        kanActionLockRef.current = false;
+      };
 
       const candidate = kanCandidates.find((c) => c.base === base);
-      if (!candidate) return false;
+      if (!candidate) {
+        releaseLock();
+        return false;
+      }
 
       noteCallMade();
 
@@ -954,7 +912,10 @@ export const useMahjong = () => {
 
       if (candidate.kind === 'kakan') {
         const idx = findPonMeldIndexByBase(playerMelds, base);
-        if (idx === -1) return false;
+        if (idx === -1) {
+          releaseLock();
+          return false;
+        }
 
         const nextHand = [...playerHand];
         let addedTile: TileId | null = null;
@@ -966,7 +927,10 @@ export const useMahjong = () => {
         } else {
           addedTile = removeOneTileByBase(nextHand, base);
         }
-        if (!addedTile) return false;
+        if (!addedTile) {
+          releaseLock();
+          return false;
+        }
 
         if (originalDrawn && !consumedDrawn) nextHand.push(originalDrawn);
 
@@ -989,7 +953,10 @@ export const useMahjong = () => {
           taken.push(originalDrawn);
           consumedDrawn = true;
         }
-        if (taken.length !== 4) return false;
+        if (taken.length !== 4) {
+          releaseLock();
+          return false;
+        }
 
         if (originalDrawn && !consumedDrawn) nextHand.push(originalDrawn);
 
@@ -1003,6 +970,8 @@ export const useMahjong = () => {
       setSkipDraw(false);
       setCurrentTurn('player');
       setGameState('player_turn');
+      // Unlock after a short delay to avoid multiple UI clicks in the same moment.
+      setTimeout(releaseLock, 250);
       return true;
     },
     [gameState, kanCandidates, noteCallMade, playerMelds, playerHand, playerDrawn, revealDoraIndicator, drawTileFor],
