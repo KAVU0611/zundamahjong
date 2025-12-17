@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { calculateScore, nextDoraTile, type ScoreResult, type WinMethod } from '../lib/mahjong/scoring';
 import { createShuffledWall } from '../lib/mahjong/wall';
+import { allTileBases, calculateShantenFromCounts, counts34FromBases, tileBaseToIndex } from '../lib/mahjong/shanten';
 
 export type TileId = string;
 type RiverEntry = { id: string; tileId: TileId | null; base: string; isRed: boolean; called: boolean };
@@ -1256,32 +1257,102 @@ const opponentDiscard = useCallback(
       }
       const fullHand = tile ? [...opponentHand, tile] : [...opponentHand];
       if (!fullHand.length) return null;
-      const pickRiichiDiscard = () => {
-        const candidates: number[] = [];
-        for (let i = 0; i < fullHand.length; i++) {
-          const after = fullHand.filter((_, j) => j !== i);
-          if (isTenpai(after)) candidates.push(i);
-        }
-        // Prefer discarding non-red tiles when possible
-        const nonRed = candidates.filter((i) => !isRedTile(fullHand[i]!));
-        if (nonRed.length) return nonRed[0]!;
-        if (candidates.length) return candidates[0]!;
-        return null;
-      };
       const forbidBase = kuikaeForbiddenBase.opponent;
-      const canDiscardIndex = (i: number) => !forbidBase || tileBase(fullHand[i]!) !== forbidBase;
+      const meldCount = opponentMelds.length;
+      const remainingCounts = countTiles(wallRef.current);
 
-      let discardIndex: number | null = null;
-      if (intentToDeclareRiichi || riichiIntent.opponent) {
-        const idx = pickRiichiDiscard();
-        if (idx !== null && canDiscardIndex(idx)) discardIndex = idx;
+      const fullHandBases = fullHand.map(tileBase);
+      const countsFull = counts34FromBases(fullHandBases);
+
+      const candidatesByBase = new Map<string, number[]>();
+      for (let i = 0; i < fullHand.length; i++) {
+        const base = fullHandBases[i]!;
+        const list = candidatesByBase.get(base) ?? [];
+        list.push(i);
+        candidatesByBase.set(base, list);
       }
-      if (discardIndex === null) {
-        const candidates = fullHand.map((_, i) => i).filter(canDiscardIndex);
-        const nonRedCandidates = candidates.filter((i) => !isRedTile(fullHand[i]!));
-        const pool = nonRedCandidates.length ? nonRedCandidates : candidates;
-        discardIndex = pool.length ? pool[Math.floor(Math.random() * pool.length)]! : Math.floor(Math.random() * fullHand.length);
+
+      const isForbiddenBase = (base: string) => !!forbidBase && base === forbidBase;
+
+      const chooseIndexForBase = (indices: number[]) => {
+        const nonRed = indices.find((i) => !isRedTile(fullHand[i]!));
+        return nonRed ?? indices[0]!;
+      };
+
+      type EvalResult = {
+        base: string;
+        discardIndex: number;
+        shanten: number;
+        ukeire: number;
+      };
+
+      const evaluateBaseDiscard = (base: string, indices: number[]): EvalResult | null => {
+        if (isForbiddenBase(base)) return null;
+        const baseIdx = tileBaseToIndex(base);
+        if (baseIdx === null) return null;
+        if ((countsFull[baseIdx] ?? 0) <= 0) return null;
+
+        const discardIndex = chooseIndexForBase(indices);
+        const afterBases = [...fullHandBases];
+        const removeAt = afterBases.findIndex((b) => b === base);
+        if (removeAt === -1) return null;
+        afterBases.splice(removeAt, 1);
+
+        const countsAfter = countsFull.slice();
+        countsAfter[baseIdx]!--;
+        const shanten = calculateShantenFromCounts(countsAfter, meldCount);
+
+        let ukeire = 0;
+        for (const drawBase of allTileBases) {
+          const remaining = remainingCounts[drawBase] ?? 0;
+          if (remaining <= 0) continue;
+
+          if (shanten === 0) {
+            if (isWinningHand([...afterBases, drawBase])) ukeire += remaining;
+            continue;
+          }
+
+          const drawIdx = tileBaseToIndex(drawBase);
+          if (drawIdx === null) continue;
+
+          const counts14 = countsAfter.slice();
+          counts14[drawIdx] = (counts14[drawIdx] ?? 0) + 1;
+
+          let bestAfterDraw = Number.POSITIVE_INFINITY;
+          for (let i = 0; i < 34; i++) {
+            if ((counts14[i] ?? 0) <= 0) continue;
+            counts14[i]!--;
+            const s = calculateShantenFromCounts(counts14, meldCount);
+            if (s < bestAfterDraw) bestAfterDraw = s;
+            counts14[i]!++;
+            if (bestAfterDraw < shanten) break;
+          }
+
+          if (bestAfterDraw < shanten) ukeire += remaining;
+        }
+
+        return { base, discardIndex, shanten, ukeire };
+      };
+
+      const evals: EvalResult[] = [];
+      for (const [base, indices] of candidatesByBase) {
+        const e = evaluateBaseDiscard(base, indices);
+        if (e) evals.push(e);
       }
+
+      if (!evals.length) return null;
+
+      evals.sort((a, b) => {
+        if (a.shanten !== b.shanten) return a.shanten - b.shanten;
+        if (a.ukeire !== b.ukeire) return b.ukeire - a.ukeire;
+        const aRed = isRedTile(fullHand[a.discardIndex]!);
+        const bRed = isRedTile(fullHand[b.discardIndex]!);
+        if (aRed !== bRed) return aRed ? 1 : -1;
+        return a.base.localeCompare(b.base);
+      });
+
+      const best = evals[0]!;
+      const discardIndex = best.discardIndex;
 
       const discard = fullHand.splice(discardIndex, 1)[0];
       setOpponentHand(fullHand.sort(sortHand));
@@ -1289,16 +1360,35 @@ const opponentDiscard = useCallback(
       const riverIndex = opponentRiver.length;
       setOpponentRiver((r) => [...r, makeRiverEntry(discard)]);
       if (kuikaeForbiddenBase.opponent) setKuikaeForbiddenBase((k) => ({ ...k, opponent: null }));
-      if ((intentToDeclareRiichi || riichiIntent.opponent) && !riichiState.opponent) {
-        if (isTenpai(fullHand)) {
+
+      // テンパイになったら即リーチ（門前＆供託支払い可能＆局が残っている場合）
+      if (!riichiState.opponent && opponentMelds.length === 0 && remainingJun > 0 && (scores.opponent ?? 0) >= RIICHI_COST) {
+        const afterBases = fullHand.map(tileBase);
+        const afterCounts = counts34FromBases(afterBases);
+        const shantenAfter = calculateShantenFromCounts(afterCounts, 0);
+        if (shantenAfter === 0) {
           declareRiichi('opponent', riverIndex);
-        } else {
+        } else if (intentToDeclareRiichi || riichiIntent.opponent) {
           setRiichiIntent((i) => ({ ...i, opponent: false }));
         }
+      } else if (intentToDeclareRiichi || riichiIntent.opponent) {
+        setRiichiIntent((i) => ({ ...i, opponent: false }));
       }
       return discard;
     },
-    [opponentDrawn, opponentHand, opponentRiver, riichiIntent.opponent, riichiState.opponent, declareRiichi, kuikaeForbiddenBase.opponent, makeRiverEntry],
+    [
+      opponentDrawn,
+      opponentHand,
+      opponentRiver,
+      riichiIntent.opponent,
+      riichiState.opponent,
+      declareRiichi,
+      kuikaeForbiddenBase.opponent,
+      makeRiverEntry,
+      opponentMelds.length,
+      remainingJun,
+      scores.opponent,
+    ],
   );
 
   const opponentTurn = useCallback(() => {
