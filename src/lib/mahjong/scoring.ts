@@ -1,0 +1,482 @@
+import type { TileId } from '../../hooks/useMahjong';
+
+export type Player = 'player' | 'opponent';
+
+export type WinMethod = 'tsumo' | 'ron';
+
+export type MeldType = 'pon' | 'chi' | 'kan';
+
+export type Meld = {
+  type: MeldType;
+  tiles: TileId[];
+};
+
+export type Yaku = {
+  name: string;
+  han: number;
+};
+
+export type ScoreResult = {
+  yaku: Yaku[];
+  han: number;
+  fu: number;
+  limitName: string | null;
+  basePoints: number;
+  totalPoints: number;
+  doraHan: number;
+  uraDoraHan: number;
+};
+
+const countTiles = (tiles: TileId[]) => {
+  const counts: Record<string, number> = {};
+  for (const t of tiles) counts[t] = (counts[t] || 0) + 1;
+  return counts;
+};
+
+const cloneCounts = (counts: Record<string, number>) => ({ ...counts });
+
+const isHonor = (t: TileId) => t[0] === 'z';
+const tileNumber = (t: TileId) => parseInt(t.slice(1), 10);
+const isTerminal = (t: TileId) => !isHonor(t) && (tileNumber(t) === 1 || tileNumber(t) === 9);
+const isTerminalOrHonor = (t: TileId) => isHonor(t) || isTerminal(t);
+const isSimple = (t: TileId) => !isHonor(t) && tileNumber(t) >= 2 && tileNumber(t) <= 8;
+
+const roundUpToHundreds = (points: number) => Math.ceil(points / 100) * 100;
+const roundUpToTens = (fu: number) => Math.ceil(fu / 10) * 10;
+
+export const nextDoraTile = (indicator: TileId): TileId => {
+  const suit = indicator[0];
+  const num = tileNumber(indicator);
+  if (suit === 'm' || suit === 'p' || suit === 's') {
+    const next = num === 9 ? 1 : num + 1;
+    return `${suit}${next}`;
+  }
+  if (suit === 'z') {
+    if (num >= 1 && num <= 4) return `z${num === 4 ? 1 : num + 1}`;
+    if (num >= 5 && num <= 7) return `z${num === 7 ? 5 : num + 1}`;
+  }
+  return indicator;
+};
+
+const countDora = (tiles: TileId[], indicators: TileId[]) => {
+  const doraTiles = indicators.map(nextDoraTile);
+  const counts = countTiles(tiles);
+  let total = 0;
+  for (const dora of doraTiles) total += counts[dora] || 0;
+  return total;
+};
+
+type SetShape =
+  | { kind: 'sequence'; tiles: [TileId, TileId, TileId]; open: boolean }
+  | { kind: 'triplet'; tile: TileId; open: boolean }
+  | { kind: 'quad'; tile: TileId; open: boolean };
+
+type HandShape = {
+  isSevenPairs: boolean;
+  pairTile: TileId | null;
+  sets: SetShape[];
+  waitFu: number;
+  isPinfuWait: boolean;
+};
+
+const tilesFromSets = (sets: SetShape[]) => {
+  const out: TileId[] = [];
+  for (const s of sets) {
+    if (s.kind === 'sequence') out.push(...s.tiles);
+    if (s.kind === 'triplet') out.push(s.tile, s.tile, s.tile);
+    if (s.kind === 'quad') out.push(s.tile, s.tile, s.tile, s.tile);
+  }
+  return out;
+};
+
+const suitsInTiles = (tiles: TileId[]) => {
+  const suits = new Set<string>();
+  for (const t of tiles) {
+    if (t[0] === 'm' || t[0] === 'p' || t[0] === 's') suits.add(t[0]);
+  }
+  return suits;
+};
+
+const allTilesAreTanyao = (tiles: TileId[]) => tiles.every((t) => isSimple(t));
+
+const isChiitoi = (tiles: TileId[]) => {
+  if (tiles.length !== 14) return false;
+  const counts = countTiles(tiles);
+  return Object.values(counts).every((v) => v === 2);
+};
+
+const listAllTileIds = (): TileId[] => {
+  const ids: TileId[] = [];
+  for (const suit of ['m', 'p', 's']) {
+    for (let i = 1; i <= 9; i++) ids.push(`${suit}${i}`);
+  }
+  for (let i = 1; i <= 7; i++) ids.push(`z${i}`);
+  return ids;
+};
+
+const sortedTileIds = listAllTileIds();
+
+const buildMeldShapes = (melds: Meld[]): SetShape[] => {
+  const shapes: SetShape[] = [];
+  for (const m of melds) {
+    if (m.type === 'chi') {
+      const tiles = [...m.tiles].sort();
+      if (tiles.length === 3) {
+        shapes.push({ kind: 'sequence', tiles: [tiles[0]!, tiles[1]!, tiles[2]!], open: true });
+      }
+    } else if (m.type === 'pon') {
+      shapes.push({ kind: 'triplet', tile: m.tiles[0], open: true });
+    } else if (m.type === 'kan') {
+      shapes.push({ kind: 'quad', tile: m.tiles[0], open: true });
+    }
+  }
+  return shapes;
+};
+
+const extractAllConcealedShapes = (
+  concealedTiles: TileId[],
+  requiredSetCount: number,
+  winTile: TileId,
+): HandShape[] => {
+  const shapes: HandShape[] = [];
+
+  if (requiredSetCount < 0) return shapes;
+  if (concealedTiles.length !== requiredSetCount * 3 + 2) return shapes;
+
+  if (requiredSetCount === 0) {
+    const counts = countTiles(concealedTiles);
+    const pairCandidates = Object.entries(counts).filter(([, v]) => v === 2);
+    for (const [pairTile] of pairCandidates) {
+      const waitFu = pairTile === winTile ? 2 : 0;
+      shapes.push({
+        isSevenPairs: false,
+        pairTile,
+        sets: [],
+        waitFu,
+        isPinfuWait: waitFu === 0,
+      });
+    }
+    return shapes;
+  }
+
+  const counts = countTiles(concealedTiles);
+  for (const [pairTile, ct] of Object.entries(counts)) {
+    if (ct < 2) continue;
+    const restCounts = cloneCounts(counts);
+    restCounts[pairTile] -= 2;
+
+    const collectSets = (currentCounts: Record<string, number>, sets: SetShape[]) => {
+      if (sets.length === requiredSetCount) {
+        if (Object.values(currentCounts).every((v) => v === 0)) {
+          // wait / pinfu-wait estimation (take best case inside this fixed shape)
+          const waitFu = calcWaitFu({ pairTile, sets }, winTile);
+          const isPinfuWait = waitFu === 0;
+          shapes.push({
+            isSevenPairs: false,
+            pairTile,
+            sets,
+            waitFu,
+            isPinfuWait,
+          });
+        }
+        return;
+      }
+      const nextTile = sortedTileIds.find((t) => (currentCounts[t] || 0) > 0);
+      if (!nextTile) return;
+
+      const nextCt = currentCounts[nextTile] || 0;
+      // triplet
+      if (nextCt >= 3) {
+        const n = cloneCounts(currentCounts);
+        n[nextTile] -= 3;
+        collectSets(n, [...sets, { kind: 'triplet', tile: nextTile, open: false }]);
+      }
+      // sequence
+      const suit = nextTile[0];
+      const num = tileNumber(nextTile);
+      if (suit !== 'z' && num <= 7) {
+        const t1 = `${suit}${num + 1}`;
+        const t2 = `${suit}${num + 2}`;
+        if ((currentCounts[t1] || 0) > 0 && (currentCounts[t2] || 0) > 0) {
+          const n = cloneCounts(currentCounts);
+          n[nextTile]--;
+          n[t1]--;
+          n[t2]--;
+          collectSets(n, [...sets, { kind: 'sequence', tiles: [nextTile, t1, t2], open: false }]);
+        }
+      }
+    };
+
+    collectSets(restCounts, []);
+  }
+  return shapes;
+};
+
+const calcWaitFu = (shape: { pairTile: TileId; sets: SetShape[] }, winTile: TileId): number => {
+  let best = shape.pairTile === winTile ? 2 : 0; // tanki
+  for (const s of shape.sets) {
+    if (s.kind !== 'sequence') continue;
+    const tiles = s.tiles;
+    if (!tiles.includes(winTile)) continue;
+    const nums = tiles.map(tileNumber).sort((a, b) => a - b);
+    const start = nums[0];
+    const mid = nums[1];
+    const winNum = tileNumber(winTile);
+    if (winNum === mid) best = Math.max(best, 2); // kanchan
+    else if ((start === 1 && winNum === 3) || (start === 7 && winNum === 7)) best = Math.max(best, 2); // penchan
+    else best = Math.max(best, 0); // ryanmen / shanpon(handled elsewhere)
+    // If win tile completes triplet (shanpon) no wait fu; handled by leaving best as-is.
+  }
+  return best;
+};
+
+const calcFu = (opts: {
+  isMenzen: boolean;
+  method: WinMethod;
+  isPinfu: boolean;
+  roundWind: TileId;
+  seatWind: TileId;
+  shape: HandShape;
+}): number => {
+  if (opts.shape.isSevenPairs) return 25;
+
+  let fu = 20;
+
+  if (opts.method === 'ron' && opts.isMenzen) fu += 10;
+  if (opts.method === 'tsumo' && !opts.isPinfu) fu += 2;
+
+  // Pair fu (yakuhai pair)
+  if (opts.shape.pairTile) {
+    const p = opts.shape.pairTile;
+    if (p === 'z5' || p === 'z6' || p === 'z7') fu += 2;
+    if (p === opts.roundWind) fu += 2;
+    if (p === opts.seatWind) fu += 2;
+  }
+
+  // Wait fu
+  fu += opts.shape.waitFu;
+
+  // Set fu
+  for (const s of opts.shape.sets) {
+    if (s.kind === 'sequence') continue;
+    const tile = s.tile;
+    const yao = isTerminalOrHonor(tile);
+    if (s.kind === 'triplet') {
+      if (s.open) fu += yao ? 4 : 2;
+      else fu += yao ? 8 : 4;
+    } else if (s.kind === 'quad') {
+      if (s.open) fu += yao ? 16 : 8;
+      else fu += yao ? 32 : 16;
+    }
+  }
+
+  // Pinfu special: tsumo is always 20符 (no tsumo fu, no wait/pair/set fu)
+  if (opts.isPinfu && opts.method === 'tsumo' && opts.isMenzen) return 20;
+
+  const rounded = roundUpToTens(fu);
+  // 七対子・平和ツモ以外は最低30符
+  return rounded === 20 ? 30 : rounded;
+};
+
+const detectYaku = (opts: {
+  allTiles: TileId[];
+  sets: SetShape[];
+  pairTile: TileId | null;
+  isMenzen: boolean;
+  isRiichi: boolean;
+  method: WinMethod;
+  roundWind: TileId;
+  seatWind: TileId;
+  shape: HandShape;
+}): Yaku[] => {
+  const yaku: Yaku[] = [];
+
+  if (opts.isRiichi) yaku.push({ name: '立直', han: 1 });
+  if (opts.method === 'tsumo' && opts.isMenzen) yaku.push({ name: '門前清自摸和', han: 1 });
+
+  if (opts.shape.isSevenPairs) {
+    yaku.push({ name: '七対子', han: 2 });
+  } else {
+    // Pinfu
+    const allSequences = opts.sets.every((s) => s.kind === 'sequence');
+    const pairIsValue =
+      opts.pairTile !== null &&
+      (isHonor(opts.pairTile) &&
+        (opts.pairTile === 'z5' ||
+          opts.pairTile === 'z6' ||
+          opts.pairTile === 'z7' ||
+          opts.pairTile === opts.roundWind ||
+          opts.pairTile === opts.seatWind));
+    if (opts.isMenzen && allSequences && !pairIsValue && opts.shape.isPinfuWait) yaku.push({ name: '平和', han: 1 });
+
+    // Yakuhai (each)
+    for (const s of opts.sets) {
+      if (s.kind !== 'triplet' && s.kind !== 'quad') continue;
+      const t = s.tile;
+      if (t === 'z5' || t === 'z6' || t === 'z7') yaku.push({ name: '役牌', han: 1 });
+      else if (t === opts.roundWind) yaku.push({ name: '役牌(場風)', han: 1 });
+      else if (t === opts.seatWind) yaku.push({ name: '役牌(自風)', han: 1 });
+    }
+
+    // Toitoi
+    const allTriplets = opts.sets.every((s) => s.kind === 'triplet' || s.kind === 'quad');
+    if (allTriplets) yaku.push({ name: '対々和', han: 2 });
+  }
+
+  // Tanyao (works for chiitoi too)
+  if (allTilesAreTanyao(opts.allTiles)) yaku.push({ name: '断么九', han: 1 });
+
+  // Honitsu / Chinitsu
+  const hasHonor = opts.allTiles.some((t) => isHonor(t));
+  const suits = suitsInTiles(opts.allTiles);
+  if (suits.size === 1) {
+    if (hasHonor) yaku.push({ name: '混一色', han: opts.isMenzen ? 3 : 2 });
+    else yaku.push({ name: '清一色', han: opts.isMenzen ? 6 : 5 });
+  }
+
+  return yaku;
+};
+
+const detectLimitName = (han: number, fu: number) => {
+  if (han >= 13) return { name: '数え役満', base: 8000 };
+  if (han >= 11) return { name: '三倍満', base: 6000 };
+  if (han >= 8) return { name: '倍満', base: 4000 };
+  if (han >= 6) return { name: '跳満', base: 3000 };
+  const isMangan = han >= 5 || (han === 4 && fu >= 40) || (han === 3 && fu >= 70);
+  if (isMangan) return { name: '満貫', base: 2000 };
+  return null;
+};
+
+const calcTotalPoints = (method: WinMethod, isDealer: boolean, basePoints: number) => {
+  if (method === 'ron') {
+    const mult = isDealer ? 6 : 4;
+    return roundUpToHundreds(basePoints * mult);
+  }
+  // tsumo: sum of payments (4-player total), then used as delta in 2-player game
+  if (isDealer) {
+    const payment = roundUpToHundreds(basePoints * 2);
+    return payment * 3;
+  }
+  const dealerPayment = roundUpToHundreds(basePoints * 2);
+  const nonDealerPayment = roundUpToHundreds(basePoints);
+  return dealerPayment + nonDealerPayment * 2;
+};
+
+const pickBestResult = (results: ScoreResult[]): ScoreResult => {
+  // Prefer higher total points, then higher han, then higher fu.
+  return results.sort((a, b) => b.totalPoints - a.totalPoints || b.han - a.han || b.fu - a.fu)[0];
+};
+
+export const calculateScore = (opts: {
+  concealedTiles: TileId[]; // 14 tiles (hand + winning tile)
+  melds: Meld[];
+  method: WinMethod;
+  isDealer: boolean;
+  isRiichi: boolean;
+  doraIndicators: TileId[];
+  uraIndicators: TileId[];
+  roundWind: TileId; // z1..z4
+  seatWind: TileId; // z1..z4
+  winTile: TileId;
+}): ScoreResult => {
+  const isMenzen = opts.melds.length === 0;
+  const openSetShapes = buildMeldShapes(opts.melds);
+
+  const allTiles = [...opts.concealedTiles, ...tilesFromSets(openSetShapes)];
+
+  // special: chiitoi only possible when menzen
+  const chiitoiPossible = isMenzen && isChiitoi(opts.concealedTiles);
+
+  const candidateShapes: HandShape[] = [];
+  if (chiitoiPossible) {
+    candidateShapes.push({
+      isSevenPairs: true,
+      pairTile: null,
+      sets: [],
+      waitFu: 0,
+      isPinfuWait: false,
+    });
+  }
+
+  const requiredConcealedSetCount = 4 - openSetShapes.length;
+  if (requiredConcealedSetCount >= 0) {
+    const shapes = extractAllConcealedShapes(opts.concealedTiles, requiredConcealedSetCount, opts.winTile);
+    for (const s of shapes) {
+      candidateShapes.push({
+        ...s,
+        sets: [...openSetShapes, ...s.sets],
+      });
+    }
+  }
+
+  if (!candidateShapes.length) {
+    // Fallback: still return dora-only score with 30符固定 (should not normally happen)
+    const doraHan = countDora(allTiles, opts.doraIndicators);
+    const uraDoraHan = opts.isRiichi ? countDora(allTiles, opts.uraIndicators) : 0;
+    const han = doraHan + uraDoraHan;
+    const fu = 30;
+    const limit = detectLimitName(han, fu);
+    const base = limit ? limit.base : fu * Math.pow(2, han + 2);
+    return {
+      yaku: [],
+      han,
+      fu,
+      limitName: limit?.name ?? null,
+      basePoints: base,
+      totalPoints: calcTotalPoints(opts.method, opts.isDealer, base),
+      doraHan,
+      uraDoraHan,
+    };
+  }
+
+  const results: ScoreResult[] = candidateShapes.map((shape) => {
+    const sets = shape.isSevenPairs ? openSetShapes : shape.sets;
+    const pairTile = shape.pairTile;
+    const yaku = detectYaku({
+      allTiles,
+      sets,
+      pairTile,
+      isMenzen,
+      isRiichi: opts.isRiichi,
+      method: opts.method,
+      roundWind: opts.roundWind,
+      seatWind: opts.seatWind,
+      shape,
+    });
+
+    const baseYakuHan = yaku.reduce((sum, y) => sum + y.han, 0);
+    const doraHan = countDora(allTiles, opts.doraIndicators);
+    const uraDoraHan = opts.isRiichi ? countDora(allTiles, opts.uraIndicators) : 0;
+    const han = baseYakuHan + doraHan + uraDoraHan;
+
+    const isPinfu = yaku.some((y) => y.name === '平和');
+    const fu = calcFu({
+      isMenzen,
+      method: opts.method,
+      isPinfu,
+      roundWind: opts.roundWind,
+      seatWind: opts.seatWind,
+      shape: shape.isSevenPairs ? shape : { ...shape, sets },
+    });
+
+    const limit = detectLimitName(han, fu);
+    const basePoints = limit ? limit.base : fu * Math.pow(2, han + 2);
+
+    const scoreYaku: Yaku[] = [...yaku];
+    if (doraHan > 0) scoreYaku.push({ name: `ドラ ${doraHan}`, han: doraHan });
+    if (uraDoraHan > 0) scoreYaku.push({ name: `裏ドラ ${uraDoraHan}`, han: uraDoraHan });
+
+    return {
+      yaku: scoreYaku,
+      han,
+      fu,
+      limitName: limit?.name ?? null,
+      basePoints,
+      totalPoints: calcTotalPoints(opts.method, opts.isDealer, basePoints),
+      doraHan,
+      uraDoraHan,
+    };
+  });
+
+  return pickBestResult(results);
+};
