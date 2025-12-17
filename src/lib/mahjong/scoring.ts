@@ -9,6 +9,8 @@ export type MeldType = 'pon' | 'chi' | 'kan';
 export type Meld = {
   type: MeldType;
   tiles: TileId[];
+  // 暗槓など（門前扱い）: true のとき open=false として符計算
+  concealed?: boolean;
 };
 
 export type Yaku = {
@@ -182,7 +184,7 @@ const buildMeldShapes = (melds: Meld[]): SetShape[] => {
     } else if (m.type === 'pon') {
       shapes.push({ kind: 'triplet', tile: baseTile(m.tiles[0]!), open: true });
     } else if (m.type === 'kan') {
-      shapes.push({ kind: 'quad', tile: baseTile(m.tiles[0]!), open: true });
+      shapes.push({ kind: 'quad', tile: baseTile(m.tiles[0]!), open: !m.concealed });
     }
   }
   return shapes;
@@ -587,7 +589,8 @@ export const calculateScore = (opts: {
   seatWind: TileId; // z1..z4
   winTile: TileId;
 }): ScoreResult => {
-  const isMenzen = opts.melds.length === 0;
+  // 暗槓は門前扱い
+  const isMenzen = opts.melds.every((m) => m.type === 'kan' && m.concealed);
   const openSetShapes = buildMeldShapes(opts.melds);
 
   const meldTileInstances = opts.melds.flatMap((m) => m.tiles);
