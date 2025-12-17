@@ -73,6 +73,26 @@ const getTilePath = (tileId: TileId): string => {
   return `/tiles/${TILE_ID_TO_IMAGE_MAP[base]}.png`;
 };
 
+const TILE_ASSET_PATHS: string[] = Array.from(
+  new Set([
+    '/tiles/Front.png',
+    '/tiles/Back.png',
+    '/tiles/Man5-Dora.png',
+    '/tiles/Pin5-Dora.png',
+    '/tiles/Sou5-Dora.png',
+    ...Object.values(TILE_ID_TO_IMAGE_MAP).map((name) => `/tiles/${name}.png`),
+  ]),
+);
+
+const preloadImages = (paths: string[]) => {
+  if (typeof window === 'undefined') return;
+  for (const src of paths) {
+    const img = new window.Image();
+    img.decoding = 'async';
+    img.src = src;
+  }
+};
+
 type TileProps = {
   tileId?: TileId | null;
   isBack?: boolean;
@@ -92,7 +112,7 @@ const Tile: React.FC<TileProps> = ({ tileId, isBack = false, onClick, className 
   if (isBack) {
     return (
       <div className={`${baseStyle} ${thicknessStyle} ${orientationStyle} relative ${className}`}>
-        <Image src="/tiles/Back.png" alt="Tile back" fill className="object-cover rounded-md" />
+        <Image src="/tiles/Back.png" alt="Tile back" fill unoptimized className="object-cover rounded-md" />
       </div>
     );
   }
@@ -104,8 +124,8 @@ const Tile: React.FC<TileProps> = ({ tileId, isBack = false, onClick, className 
       onClick={onClick}
       className={`${baseStyle} ${thicknessStyle} relative bg-white ${emphasisStyle} ${orientationStyle} ${className}`}
     >
-      <Image src="/tiles/Front.png" alt="Tile front base" fill className="absolute inset-0 w-full h-full rounded-md" />
-      <Image src={getTilePath(tileId)} alt={tileBaseId(tileId)} fill className="relative z-10 w-full h-full object-contain p-1" />
+      <Image src="/tiles/Front.png" alt="Tile front base" fill unoptimized className="absolute inset-0 w-full h-full rounded-md" />
+      <Image src={getTilePath(tileId)} alt={tileBaseId(tileId)} fill unoptimized className="relative z-10 w-full h-full object-contain p-1" />
     </div>
   );
 };
@@ -129,7 +149,7 @@ const Zundamon: React.FC<{ mode: keyof typeof ZUNDAMON_STATES }> = ({ mode }) =>
   return (
     <div className="flex flex-col items-center justify-center">
       <div className="w-28 h-28 sm:w-36 sm:h-36 relative">
-        <Image src={`/zunda/${state.img}`} alt="Zundamon" fill className="object-contain" />
+        <Image src={`/zunda/${state.img}`} alt="Zundamon" fill unoptimized className="object-contain" />
       </div>
       <div className="mt-2 p-2 bg-white rounded-lg shadow-md text-center text-gray-800 max-w-[92vw]">
         <p className="text-sm sm:text-base">{state.text}</p>
@@ -222,10 +242,17 @@ export default function MahjongPage() {
   const prevOpponentRiverCountRef = React.useRef(0);
   const prevRoundResultKeyRef = React.useRef<string | null>(null);
   const slowWarnedRef = React.useRef(false);
+  const tileAssetsPreloadedRef = React.useRef(false);
 
   React.useEffect(() => {
     if (!callPrompt) setRonConfirmOpen(false);
   }, [callPrompt]);
+
+  React.useEffect(() => {
+    if (tileAssetsPreloadedRef.current) return;
+    tileAssetsPreloadedRef.current = true;
+    preloadImages(TILE_ASSET_PATHS);
+  }, []);
 
   React.useEffect(() => {
     if (gameState !== 'player_turn') setKanSelectOpen(false);
@@ -469,6 +496,7 @@ export default function MahjongPage() {
                 {playerDrawn && (
                   <div className="ml-2 sm:ml-3">
                     <Tile
+                      key={playerDrawn}
                       tileId={playerDrawn}
                       onClick={
                         gameState === 'player_turn'
