@@ -58,6 +58,8 @@ const TILE_TYPES = {
   z: 7,
 };
 
+const tileBase = (tileId: TileId): TileId => tileId.split('_')[0]!;
+
 const allTileIds: TileId[] = (() => {
   const ids: TileId[] = [];
   for (const [suit, count] of Object.entries(TILE_TYPES)) {
@@ -71,7 +73,7 @@ const allTileIds: TileId[] = (() => {
 const createInitialWall = (): TileId[] => {
   const wall: TileId[] = [];
   for (const id of allTileIds) {
-    for (let i = 0; i < 4; i++) wall.push(id);
+    for (let i = 0; i < 4; i++) wall.push(`${id}_${i}`);
   }
   for (let i = wall.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -86,8 +88,31 @@ const cloneCounts = (counts: Record<string, number>) => ({ ...counts });
 
 const countTiles = (tiles: TileId[]) => {
   const counts: Record<string, number> = {};
-  for (const t of tiles) counts[t] = (counts[t] || 0) + 1;
+  for (const t of tiles) {
+    const base = tileBase(t);
+    counts[base] = (counts[base] || 0) + 1;
+  }
   return counts;
+};
+
+const removeTilesByBase = (tiles: TileId[], baseTile: TileId, n: number): TileId[] => {
+  const removed: TileId[] = [];
+  for (let i = tiles.length - 1; i >= 0 && removed.length < n; i--) {
+    if (tileBase(tiles[i]!) === baseTile) {
+      removed.push(tiles.splice(i, 1)[0]!);
+    }
+  }
+  return removed;
+};
+
+const removeOneTileByBase = (tiles: TileId[], baseTile: TileId): TileId | null => {
+  const removed = removeTilesByBase(tiles, baseTile, 1);
+  return removed.length ? removed[0]! : null;
+};
+
+const findPonMeldIndexByBase = (melds: Meld[], baseTileId: TileId): number => {
+  const target = tileBase(baseTileId);
+  return melds.findIndex((m) => m.type === 'pon' && m.tiles.some((t) => tileBase(t) === target));
 };
 
 const canFormSets = (counts: Record<string, number>): boolean => {
@@ -152,6 +177,9 @@ const canDeclareRiichiFromHand = (baseHand: TileId[], drawn: TileId | null, meld
   // 13枚ならそのままテンパイ判定、14枚なら「どれか1枚切ってテンパイになれるか」を判定
   if (fullHand.length === 13) return isTenpai(fullHand, melds);
   if (fullHand.length === 14) {
+    // もともと13枚の時点でテンパイなら、ツモ牌を切れば必ずテンパイ維持できる
+    // （特殊ID化しても判定がブレないよう保険）
+    if (drawn && isTenpai(baseHand, melds)) return true;
     return fullHand.some((_, index) => {
       const afterDiscard = fullHand.filter((__, j) => j !== index);
       return isTenpai(afterDiscard, melds);
@@ -162,8 +190,9 @@ const canDeclareRiichiFromHand = (baseHand: TileId[], drawn: TileId | null, meld
 
 const getChiOptions = (hand: TileId[], tile?: TileId | null): TileId[][] => {
   if (!tile) return [];
-  const suit = tile[0];
-  const num = parseInt(tile.slice(1), 10);
+  const base = tileBase(tile);
+  const suit = base[0];
+  const num = parseInt(base.slice(1), 10);
   if (suit === 'z') return [];
   const options: TileId[][] = [];
   const patterns = [
@@ -176,7 +205,7 @@ const getChiOptions = (hand: TileId[], tile?: TileId | null): TileId[][] => {
     const tilesNeeded = p.map((n) => `${suit}${n}`);
     const counts = countTiles(hand);
     let ok = true;
-    for (const id of tilesNeeded.filter((t) => t !== tile)) {
+    for (const id of tilesNeeded.filter((t) => t !== base)) {
       if ((counts[id] || 0) <= 0) {
         ok = false;
         break;
@@ -188,8 +217,8 @@ const getChiOptions = (hand: TileId[], tile?: TileId | null): TileId[][] => {
   return options;
 };
 
-const canPon = (hand: TileId[], tile: TileId) => (countTiles(hand)[tile] || 0) >= 2;
-const canKanFromDiscard = (hand: TileId[], tile: TileId) => (countTiles(hand)[tile] || 0) >= 3;
+const canPon = (hand: TileId[], tile: TileId) => (countTiles(hand)[tileBase(tile)] || 0) >= 2;
+const canKanFromDiscard = (hand: TileId[], tile: TileId) => (countTiles(hand)[tileBase(tile)] || 0) >= 3;
 
 const getWinningTiles = (hand: TileId[]) => {
   const waits = new Set<TileId>();
@@ -201,8 +230,9 @@ const getWinningTiles = (hand: TileId[]) => {
 
 const isFuriten = (hand: TileId[], river: TileId[]) => {
   if (!river.length) return false;
+  const riverBases = new Set(river.map(tileBase));
   const waits = getWinningTiles(hand);
-  return waits.some((tile) => river.includes(tile));
+  return waits.some((tile) => riverBases.has(tile));
 };
 
 const getRoundWind = (label: string): TileId => (label.startsWith('東') ? 'z1' : 'z2');
@@ -587,13 +617,46 @@ export const useMahjong = () => {
     [playerHand, opponentHand, playerRiver, opponentRiver],
   );
 
+  const canAddKan = useMemo(() => {
+    if (gameState !== 'player_turn') return false;
+    if (!playerDrawn) return false;
+    const base = tileBase(playerDrawn);
+    return findPonMeldIndexByBase(playerMelds, base) !== -1;
+  }, [gameState, playerDrawn, playerMelds]);
+
+  const addKanFromPon = useCallback(() => {
+    if (gameState !== 'player_turn') return false;
+    if (!playerDrawn) return false;
+    const base = tileBase(playerDrawn);
+    const idx = findPonMeldIndexByBase(playerMelds, base);
+    if (idx === -1) return false;
+
+    const drawn = playerDrawn;
+    setPlayerDrawn(null);
+    setPlayerMelds((melds) => {
+      const next = [...melds];
+      const current = next[idx];
+      if (!current || current.type !== 'pon') return melds;
+      next[idx] = { type: 'kan', tiles: [...current.tiles, drawn] };
+      return next;
+    });
+
+    revealDoraIndicator();
+    drawTileFor('player'); // 嶺上
+    setSkipDraw(false);
+    setCurrentTurn('player');
+    setGameState('player_turn');
+    return true;
+  }, [gameState, playerDrawn, playerMelds, revealDoraIndicator, drawTileFor]);
+
   const promptCallForPlayer = useCallback(
     (tile: TileId) => {
       if (!tile) return false;
+      const base = tileBase(tile);
       const canRon = canRonOnDiscard('player', tile);
-      if (riichiState.player) {
-        if (!canRon) return false;
-        setCallPrompt({
+	      if (riichiState.player) {
+	        if (!canRon) return false;
+	        setCallPrompt({
           from: 'opponent',
           tile,
           canRon,
@@ -601,15 +664,15 @@ export const useMahjong = () => {
           kan: false,
           chiOptions: [],
         });
-        return true;
-      }
-      const chiOptions = getChiOptions(playerHand, tile);
-      const pon = canPon(playerHand, tile);
-      const kan = canKanFromDiscard(playerHand, tile);
-      if (chiOptions.length || pon || kan || canRon) {
-        setCallPrompt({
-          from: 'opponent',
-          tile,
+	        return true;
+	      }
+	      const chiOptions = getChiOptions(playerHand, base);
+	      const pon = canPon(playerHand, base);
+	      const kan = canKanFromDiscard(playerHand, base);
+	      if (chiOptions.length || pon || kan || canRon) {
+	        setCallPrompt({
+	          from: 'opponent',
+	          tile,
           canRon,
           pon,
           kan,
@@ -622,11 +685,11 @@ export const useMahjong = () => {
     [playerHand, canRonOnDiscard, riichiState.player],
   );
 
-  const resolveCall = useCallback(
-    (type: MeldType | 'ron' | 'pass', option?: TileId[]) => {
-      if (!callPrompt) return;
-      const tile = callPrompt.tile;
-      setCallPrompt(null);
+	  const resolveCall = useCallback(
+	    (type: MeldType | 'ron' | 'pass', option?: TileId[]) => {
+	      if (!callPrompt) return;
+	      const tile = callPrompt.tile;
+	      setCallPrompt(null);
 
       if (type === 'ron') {
         handleWin('player', 'ron', tile);
@@ -638,23 +701,30 @@ export const useMahjong = () => {
         setGameState('player_turn');
         return;
       }
-
-      const nextHand = [...playerHand];
-      let meldToAdd: Meld | null = null;
-
-      if (type === 'pon') {
-        for (let i = 0; i < 2; i++) nextHand.splice(nextHand.indexOf(tile), 1);
-        meldToAdd = { type: 'pon', tiles: [tile, tile, tile] };
-      } else if (type === 'kan') {
-        for (let i = 0; i < 3; i++) nextHand.splice(nextHand.indexOf(tile), 1);
-        meldToAdd = { type: 'kan', tiles: [tile, tile, tile, tile] };
-      } else if (type === 'chi' && option) {
-        for (const t of option.filter((t) => t !== tile)) {
-          const idx = nextHand.indexOf(t);
-          if (idx >= 0) nextHand.splice(idx, 1);
-        }
-        meldToAdd = { type: 'chi', tiles: option };
-      }
+	
+	      const nextHand = [...playerHand];
+	      let meldToAdd: Meld | null = null;
+	      const base = tileBase(tile);
+	
+	      if (type === 'pon') {
+	        const removed = removeTilesByBase(nextHand, base, 2);
+	        if (removed.length === 2) meldToAdd = { type: 'pon', tiles: [tile, ...removed] };
+	      } else if (type === 'kan') {
+	        const removed = removeTilesByBase(nextHand, base, 3);
+	        if (removed.length === 3) meldToAdd = { type: 'kan', tiles: [tile, ...removed] };
+	      } else if (type === 'chi' && option) {
+	        const meldTiles: TileId[] = [];
+	        for (const t of option) {
+	          if (t === base) {
+	            meldTiles.push(tile);
+	            continue;
+	          }
+	          const taken = removeOneTileByBase(nextHand, t);
+	          if (!taken) return;
+	          meldTiles.push(taken);
+	        }
+	        meldToAdd = { type: 'chi', tiles: meldTiles };
+	      }
 
       if (meldToAdd) setPlayerMelds((m) => [...m, meldToAdd]);
       setPlayerHand(nextHand);
@@ -717,18 +787,20 @@ export const useMahjong = () => {
       }
 
       // 相手鳴き判定
-      const opponentChi = getChiOptions(opponentHand, discard);
-      const opponentPon = canPon(opponentHand, discard);
-      const opponentKan = canKanFromDiscard(opponentHand, discard);
+      const discardBase = tileBase(discard);
+      const opponentChi = getChiOptions(opponentHand, discardBase);
+      const opponentPon = canPon(opponentHand, discardBase);
+      const opponentKan = canKanFromDiscard(opponentHand, discardBase);
 
       if (opponentPon || opponentKan || opponentChi.length) {
         const choose = opponentKan ? 'kan' : opponentPon ? 'pon' : opponentChi.length ? 'chi' : null;
         if (choose === 'kan') {
           const tile = discard;
           const newHand = [...opponentHand];
-          for (let i = 0; i < 3; i++) newHand.splice(newHand.indexOf(tile), 1);
+          const removed = removeTilesByBase(newHand, discardBase, 3);
+          if (removed.length !== 3) return;
           setOpponentHand(newHand);
-          setOpponentMelds((m) => [...m, { type: 'kan', tiles: [tile, tile, tile, tile] }]);
+          setOpponentMelds((m) => [...m, { type: 'kan', tiles: [tile, ...removed] }]);
           markCalledDiscard('player', discardIndex);
           revealDoraIndicator();
           drawTileFor('opponent');
@@ -740,9 +812,10 @@ export const useMahjong = () => {
         if (choose === 'pon') {
           const tile = discard;
           const newHand = [...opponentHand];
-          for (let i = 0; i < 2; i++) newHand.splice(newHand.indexOf(tile), 1);
+          const removed = removeTilesByBase(newHand, discardBase, 2);
+          if (removed.length !== 2) return;
           setOpponentHand(newHand);
-          setOpponentMelds((m) => [...m, { type: 'pon', tiles: [tile, tile, tile] }]);
+          setOpponentMelds((m) => [...m, { type: 'pon', tiles: [tile, ...removed] }]);
           markCalledDiscard('player', discardIndex);
           setSkipDraw(true);
           setCurrentTurn('opponent');
@@ -752,12 +825,18 @@ export const useMahjong = () => {
         if (choose === 'chi') {
           const option = opponentChi[0];
           const newHand = [...opponentHand];
-          for (const t of option.filter((t) => t !== discard)) {
-            const idx = newHand.indexOf(t);
-            if (idx >= 0) newHand.splice(idx, 1);
+          const meldTiles: TileId[] = [];
+          for (const t of option) {
+            if (t === discardBase) {
+              meldTiles.push(discard);
+              continue;
+            }
+            const taken = removeOneTileByBase(newHand, t);
+            if (!taken) return;
+            meldTiles.push(taken);
           }
           setOpponentHand(newHand);
-          setOpponentMelds((m) => [...m, { type: 'chi', tiles: option }]);
+          setOpponentMelds((m) => [...m, { type: 'chi', tiles: meldTiles }]);
           markCalledDiscard('player', discardIndex);
           setSkipDraw(true);
           setCurrentTurn('opponent');
@@ -954,6 +1033,8 @@ export const useMahjong = () => {
     startGame,
     nextRound,
     discardTile,
+    canAddKan,
+    addKanFromPon,
     resolveCall,
     resolveWinPrompt,
     handleRiichi,

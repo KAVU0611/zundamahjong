@@ -29,14 +29,18 @@ export type ScoreResult = {
 
 const countTiles = (tiles: TileId[]) => {
   const counts: Record<string, number> = {};
-  for (const t of tiles) counts[t] = (counts[t] || 0) + 1;
+  for (const t of tiles) {
+    const base = t.split('_')[0]!;
+    counts[base] = (counts[base] || 0) + 1;
+  }
   return counts;
 };
 
 const cloneCounts = (counts: Record<string, number>) => ({ ...counts });
 
-const isHonor = (t: TileId) => t[0] === 'z';
-const tileNumber = (t: TileId) => parseInt(t.slice(1), 10);
+const baseTile = (t: TileId) => t.split('_')[0]!;
+const isHonor = (t: TileId) => baseTile(t)[0] === 'z';
+const tileNumber = (t: TileId) => parseInt(baseTile(t).slice(1), 10);
 const isTerminal = (t: TileId) => !isHonor(t) && (tileNumber(t) === 1 || tileNumber(t) === 9);
 const isTerminalOrHonor = (t: TileId) => isHonor(t) || isTerminal(t);
 const isSimple = (t: TileId) => !isHonor(t) && tileNumber(t) >= 2 && tileNumber(t) <= 8;
@@ -45,7 +49,8 @@ const roundUpToHundreds = (points: number) => Math.ceil(points / 100) * 100;
 const roundUpToTens = (fu: number) => Math.ceil(fu / 10) * 10;
 
 export const nextDoraTile = (indicator: TileId): TileId => {
-  const suit = indicator[0];
+  const base = baseTile(indicator);
+  const suit = base[0];
   const num = tileNumber(indicator);
   if (suit === 'm' || suit === 'p' || suit === 's') {
     const next = num === 9 ? 1 : num + 1;
@@ -55,7 +60,7 @@ export const nextDoraTile = (indicator: TileId): TileId => {
     if (num >= 1 && num <= 4) return `z${num === 4 ? 1 : num + 1}`;
     if (num >= 5 && num <= 7) return `z${num === 7 ? 5 : num + 1}`;
   }
-  return indicator;
+  return base;
 };
 
 const countDora = (tiles: TileId[], indicators: TileId[]) => {
@@ -92,7 +97,8 @@ const tilesFromSets = (sets: SetShape[]) => {
 const suitsInTiles = (tiles: TileId[]) => {
   const suits = new Set<string>();
   for (const t of tiles) {
-    if (t[0] === 'm' || t[0] === 'p' || t[0] === 's') suits.add(t[0]);
+    const base = baseTile(t);
+    if (base[0] === 'm' || base[0] === 'p' || base[0] === 's') suits.add(base[0]);
   }
   return suits;
 };
@@ -120,14 +126,14 @@ const buildMeldShapes = (melds: Meld[]): SetShape[] => {
   const shapes: SetShape[] = [];
   for (const m of melds) {
     if (m.type === 'chi') {
-      const tiles = [...m.tiles].sort();
+      const tiles = m.tiles.map(baseTile).sort();
       if (tiles.length === 3) {
         shapes.push({ kind: 'sequence', tiles: [tiles[0]!, tiles[1]!, tiles[2]!], open: true });
       }
     } else if (m.type === 'pon') {
-      shapes.push({ kind: 'triplet', tile: m.tiles[0], open: true });
+      shapes.push({ kind: 'triplet', tile: baseTile(m.tiles[0]!), open: true });
     } else if (m.type === 'kan') {
-      shapes.push({ kind: 'quad', tile: m.tiles[0], open: true });
+      shapes.push({ kind: 'quad', tile: baseTile(m.tiles[0]!), open: true });
     }
   }
   return shapes;
@@ -139,15 +145,17 @@ const extractAllConcealedShapes = (
   winTile: TileId,
 ): HandShape[] => {
   const shapes: HandShape[] = [];
+  const normalizedConcealed = concealedTiles.map(baseTile);
+  const normalizedWinTile = baseTile(winTile);
 
   if (requiredSetCount < 0) return shapes;
-  if (concealedTiles.length !== requiredSetCount * 3 + 2) return shapes;
+  if (normalizedConcealed.length !== requiredSetCount * 3 + 2) return shapes;
 
   if (requiredSetCount === 0) {
-    const counts = countTiles(concealedTiles);
+    const counts = countTiles(normalizedConcealed);
     const pairCandidates = Object.entries(counts).filter(([, v]) => v === 2);
     for (const [pairTile] of pairCandidates) {
-      const waitFu = pairTile === winTile ? 2 : 0;
+      const waitFu = pairTile === normalizedWinTile ? 2 : 0;
       shapes.push({
         isSevenPairs: false,
         pairTile,
@@ -159,7 +167,7 @@ const extractAllConcealedShapes = (
     return shapes;
   }
 
-  const counts = countTiles(concealedTiles);
+  const counts = countTiles(normalizedConcealed);
   for (const [pairTile, ct] of Object.entries(counts)) {
     if (ct < 2) continue;
     const restCounts = cloneCounts(counts);
@@ -169,7 +177,7 @@ const extractAllConcealedShapes = (
       if (sets.length === requiredSetCount) {
         if (Object.values(currentCounts).every((v) => v === 0)) {
           // wait / pinfu-wait estimation (take best case inside this fixed shape)
-          const waitFu = calcWaitFu({ pairTile, sets }, winTile);
+          const waitFu = calcWaitFu({ pairTile, sets }, normalizedWinTile);
           const isPinfuWait = waitFu === 0;
           shapes.push({
             isSevenPairs: false,

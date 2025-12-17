@@ -42,7 +42,8 @@ const TILE_ID_TO_IMAGE_MAP: Record<string, string> = {
   z7: 'Chun',
 };
 
-const getTilePath = (tileId: TileId): string => `/tiles/${TILE_ID_TO_IMAGE_MAP[tileId]}.png`;
+const tileBaseId = (tileId: TileId): TileId => tileId.split('_')[0]!;
+const getTilePath = (tileId: TileId): string => `/tiles/${TILE_ID_TO_IMAGE_MAP[tileBaseId(tileId)]}.png`;
 
 type TileProps = {
   tileId?: TileId | null;
@@ -54,15 +55,16 @@ type TileProps = {
 };
 
 const Tile: React.FC<TileProps> = ({ tileId, isBack = false, onClick, className = '', muted = false, horizontal = false }) => {
-  const baseStyle = 'w-10 h-14 rounded-md shadow-md cursor-pointer transform transition-transform hover:-translate-y-1';
+  const baseStyle =
+    'w-8 h-12 sm:w-10 sm:h-14 rounded-md shadow-md cursor-pointer select-none touch-manipulation transform transition-transform sm:hover:-translate-y-1 active:translate-y-0';
   const thicknessStyle = 'border-b-4 border-gray-400';
   const emphasisStyle = muted ? 'opacity-60 saturate-75' : '';
   const orientationStyle = horizontal ? 'rotate-90 origin-center' : '';
 
   if (isBack) {
     return (
-      <div className={`${baseStyle} ${thicknessStyle} ${orientationStyle} ${className}`}>
-        <Image src="/tiles/Back.png" alt="Tile back" width={40} height={56} className="w-full h-full rounded-md" />
+      <div className={`${baseStyle} ${thicknessStyle} ${orientationStyle} relative ${className}`}>
+        <Image src="/tiles/Back.png" alt="Tile back" fill className="object-cover rounded-md" />
       </div>
     );
   }
@@ -75,7 +77,7 @@ const Tile: React.FC<TileProps> = ({ tileId, isBack = false, onClick, className 
       className={`${baseStyle} ${thicknessStyle} relative bg-white ${emphasisStyle} ${orientationStyle} ${className}`}
     >
       <Image src="/tiles/Front.png" alt="Tile front base" fill className="absolute inset-0 w-full h-full rounded-md" />
-      <Image src={getTilePath(tileId)} alt={tileId} fill className="relative z-10 w-full h-full object-contain p-1" />
+      <Image src={getTilePath(tileId)} alt={tileBaseId(tileId)} fill className="relative z-10 w-full h-full object-contain p-1" />
     </div>
   );
 };
@@ -98,11 +100,11 @@ const Zundamon: React.FC<{ mode: keyof typeof ZUNDAMON_STATES }> = ({ mode }) =>
   const state = ZUNDAMON_STATES[mode] || ZUNDAMON_STATES.waiting;
   return (
     <div className="flex flex-col items-center justify-center">
-      <div className="w-36 h-36 relative">
+      <div className="w-28 h-28 sm:w-36 sm:h-36 relative">
         <Image src={`/zunda/${state.img}`} alt="Zundamon" fill className="object-contain" />
       </div>
-      <div className="mt-2 p-2 bg-white rounded-lg shadow-md text-center text-gray-800">
-        <p>{state.text}</p>
+      <div className="mt-2 p-2 bg-white rounded-lg shadow-md text-center text-gray-800 max-w-[92vw]">
+        <p className="text-sm sm:text-base">{state.text}</p>
       </div>
     </div>
   );
@@ -121,10 +123,10 @@ const MeldView: React.FC<{ tiles: TileId[] }> = ({ tiles }) => {
 const MeldZone: React.FC<{ title: string; melds: MeldData[]; className?: string }> = ({ title, melds, className = '' }) => {
   return (
     <div
-      className={`min-w-[180px] bg-gray-200/80 text-gray-900 rounded-lg px-3 py-2 border border-gray-300 shadow-inner ${className}`}
+      className={`min-w-0 w-full sm:min-w-[180px] bg-gray-200/80 text-gray-900 rounded-lg px-3 py-2 border border-gray-300 shadow-inner ${className}`}
     >
       <p className="text-sm font-bold mb-1">{title}</p>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 overflow-x-auto">
         {melds.length ? (
           melds.map((m, idx) => (
             <div key={`${m.type}-${idx}`} className="bg-white/70 px-1 py-0.5 rounded shadow-sm">
@@ -173,6 +175,8 @@ export default function MahjongPage() {
     startGame,
     nextRound,
     discardTile,
+    canAddKan,
+    addKanFromPon,
     resolveCall,
     resolveWinPrompt,
     handleRiichi,
@@ -220,7 +224,7 @@ export default function MahjongPage() {
     const prevCount = prevPlayerRiverCountRef.current;
     if (playerRiver.length > prevCount) {
       const last = playerRiver[playerRiver.length - 1];
-      if (last && doraTiles.includes(last)) playVoice('zunda_dora');
+      if (last && doraTiles.includes(tileBaseId(last))) playVoice('zunda_dora');
     }
     prevPlayerRiverCountRef.current = playerRiver.length;
   }, [playerRiver, doraTiles, playVoice]);
@@ -291,31 +295,31 @@ export default function MahjongPage() {
   }, [roundResult]);
 
   return (
-    <main className="flex flex-col items-center min-h-screen h-screen bg-green-800 text-white p-3 font-sans overflow-hidden">
-      <div className="w-full max-w-5xl flex flex-col gap-3 h-full">
-        <div className="flex items-center justify-between">
+    <main className="flex flex-col items-center min-h-[100dvh] bg-green-800 text-white p-2 sm:p-3 font-sans overflow-x-hidden">
+      <div className="w-full max-w-5xl flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <p className="text-sm text-green-100">{round?.label ?? '---'}</p>
-            <h1 className="text-3xl font-bold leading-tight">ずんだ麻雀（2人打ち）</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold leading-tight">ずんだ麻雀（2人打ち）</h1>
             <p className="text-xs text-green-100">東1→東2→南1→南2で終了。山が枯れたら流局。</p>
           </div>
-          <div className="flex gap-3 items-stretch">
-            <div className="bg-green-900/80 px-3 py-2 rounded border border-green-700/60 min-w-[140px]">
+          <div className="flex flex-wrap gap-2 items-stretch">
+            <div className="bg-green-900/80 px-3 py-2 rounded border border-green-700/60 min-w-[120px] flex-1">
               <p className="text-xs">本場 / 供託</p>
-              <p className="text-xl font-bold">
+              <p className="text-lg sm:text-xl font-bold">
                 {honba}本場 / {kyotaku}本
               </p>
               <p className="text-[11px] text-green-100">供託はアガリで回収</p>
             </div>
-            <div className="bg-green-900/80 px-3 py-2 rounded border border-green-700/60 min-w-[140px]">
+            <div className="bg-green-900/80 px-3 py-2 rounded border border-green-700/60 min-w-[120px] flex-1">
               <p className="text-xs">プレイヤー</p>
-              <p className="text-xl font-bold">{scores.player} 点</p>
+              <p className="text-lg sm:text-xl font-bold">{scores.player} 点</p>
               {riichiState.player && <p className="text-xs text-yellow-300">リーチ中</p>}
               {riichiIntent.player && !riichiState.player && <p className="text-[11px] text-yellow-200">リーチ準備ON</p>}
             </div>
-            <div className="bg-green-900/80 px-3 py-2 rounded border border-green-700/60 min-w-[140px]">
+            <div className="bg-green-900/80 px-3 py-2 rounded border border-green-700/60 min-w-[120px] flex-1">
               <p className="text-xs">ずんだもん</p>
-              <p className="text-xl font-bold">{scores.opponent} 点</p>
+              <p className="text-lg sm:text-xl font-bold">{scores.opponent} 点</p>
               {riichiState.opponent && <p className="text-xs text-yellow-300">リーチ中</p>}
             </div>
           </div>
@@ -334,10 +338,10 @@ export default function MahjongPage() {
           </button>
         )}
 
-        <div className="flex-1 grid grid-rows-[auto_1fr_auto] gap-3 bg-green-900/40 rounded-xl p-3 shadow-inner border border-green-700/50 overflow-hidden">
-          <section className="grid grid-cols-[1fr_auto] gap-3 items-start">
-            <div className="flex items-start gap-3">
-              <div className="flex flex-wrap items-center gap-1 bg-green-950/40 rounded-lg px-2 py-1 border border-green-700/50">
+        <div className="flex flex-col gap-3 bg-green-900/40 rounded-xl p-2 sm:p-3 shadow-inner border border-green-700/50">
+          <section className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-start">
+            <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
+              <div className="flex flex-nowrap items-center gap-1 bg-green-950/40 rounded-lg px-2 py-1 border border-green-700/50 overflow-x-auto max-w-full">
                 {opponentHand.map((_, i) => (
                   <Tile key={i} isBack className="cursor-default transform-none" />
                 ))}
@@ -352,7 +356,7 @@ export default function MahjongPage() {
             </div>
           </section>
 
-          <section className="grid grid-rows-[auto_1fr_auto] gap-2">
+          <section className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-center gap-1 p-2 bg-green-950/50 rounded-lg border border-green-700/40">
               {opponentRiver.map((tile, i) => (
                 <Tile
@@ -360,31 +364,31 @@ export default function MahjongPage() {
                   tileId={tile}
                   muted={calledRiverIndices.opponent.includes(i)}
                   horizontal={riichiDeclarationIndex.opponent === i}
-                  className="w-8 h-12 shadow-none cursor-default transform-none"
+                  className="w-7 h-10 sm:w-8 sm:h-12 shadow-none cursor-default transform-none"
                 />
               ))}
             </div>
 
-            <div className="grid grid-cols-[1.1fr_auto_1fr] gap-3 items-center">
-              <div className="text-center bg-green-950/50 rounded-lg p-3 border border-green-700/40 h-full flex flex-col justify-center">
-                <p className="font-bold text-lg mb-2">ドラ表示</p>
+            <div className="grid grid-cols-1 sm:grid-cols-[1.1fr_auto_1fr] gap-2 sm:gap-3 items-center">
+              <div className="order-2 sm:order-1 text-center bg-green-950/50 rounded-lg p-2 sm:p-3 border border-green-700/40 h-full flex flex-col justify-center">
+                <p className="font-bold text-base sm:text-lg mb-2">ドラ表示</p>
                 <div className="flex gap-2 justify-center flex-wrap">
                   {doraIndicators.map((tile, idx) => (
-                    <Tile key={`${tile}-${idx}`} tileId={tile} className="w-8 h-12 cursor-default transform-none" />
+                    <Tile key={`${tile}-${idx}`} tileId={tile} className="w-7 h-10 sm:w-8 sm:h-12 cursor-default transform-none" />
                   ))}
                 </div>
-                <p className="text-sm text-green-100 mt-1">ドラ: {doraTiles.join(', ') || 'なし'}</p>
+                <p className="text-xs sm:text-sm text-green-100 mt-1">ドラ: {doraTiles.join(', ') || 'なし'}</p>
               </div>
 
-              <div className="flex flex-col items-center gap-1">
+              <div className="order-1 sm:order-2 flex flex-col items-center gap-1">
                 <Zundamon mode={reaction === 'none' ? (gameState as keyof typeof ZUNDAMON_STATES) : reaction} />
               </div>
 
-              <div className="text-center bg-green-950/50 rounded-lg p-3 border border-green-700/40 h-full flex flex-col justify-center">
-                <p className="font-bold text-lg mb-2">進行状況</p>
-                <p className="text-sm text-green-100">山残 {wall.length} 枚</p>
-                <p className="text-sm text-green-100">残巡 {remainingJun}</p>
-                <p className="text-sm text-green-100">ツモ数 {drawCount}</p>
+              <div className="order-3 text-center bg-green-950/50 rounded-lg p-2 sm:p-3 border border-green-700/40 h-full flex flex-col justify-center">
+                <p className="font-bold text-base sm:text-lg mb-2">進行状況</p>
+                <p className="text-xs sm:text-sm text-green-100">山残 {wall.length} 枚</p>
+                <p className="text-xs sm:text-sm text-green-100">残巡 {remainingJun}</p>
+                <p className="text-xs sm:text-sm text-green-100">ツモ数 {drawCount}</p>
               </div>
             </div>
 
@@ -395,15 +399,15 @@ export default function MahjongPage() {
                   tileId={tile}
                   muted={calledRiverIndices.player.includes(i)}
                   horizontal={riichiDeclarationIndex.player === i}
-                  className="w-8 h-12 shadow-none cursor-default transform-none"
+                  className="w-7 h-10 sm:w-8 sm:h-12 shadow-none cursor-default transform-none"
                 />
               ))}
             </div>
           </section>
 
           <section className="flex flex-col gap-2">
-            <div className="w-full flex flex-wrap items-center gap-3 bg-green-950/40 rounded-lg px-3 py-2 border border-green-700/40">
-              <div className="flex items-center gap-1 flex-wrap">
+            <div className="w-full flex flex-col sm:flex-row items-stretch gap-2 sm:gap-3 bg-green-950/40 rounded-lg px-2 sm:px-3 py-2 border border-green-700/40">
+              <div className="flex items-center gap-1 flex-nowrap overflow-x-auto">
                 {playerHand.map((tile, i) => (
                   <Tile
                     key={`${tile}-${i}`}
@@ -415,7 +419,7 @@ export default function MahjongPage() {
                   />
                 ))}
                 {playerDrawn && (
-                  <div className="ml-3">
+                  <div className="ml-2 sm:ml-3">
                     <Tile
                       tileId={playerDrawn}
                       onClick={() => {
@@ -428,7 +432,21 @@ export default function MahjongPage() {
               </div>
               <MeldZone title="あなたの鳴き牌" melds={playerMelds} />
             </div>
-            <div className="flex gap-2 justify-center">
+            <div className="flex flex-wrap gap-2 justify-center">
+              {canAddKan && (
+                <button
+                  onClick={() => {
+                    playSe('click');
+                    addKanFromPon();
+                  }}
+                  disabled={gameState !== 'player_turn'}
+                  className={`px-4 py-2 rounded font-bold border bg-purple-500 text-white border-purple-700 hover:bg-purple-400 ${
+                    gameState !== 'player_turn' ? 'opacity-60 cursor-not-allowed' : ''
+                  }`}
+                >
+                  加カン
+                </button>
+              )}
               <button
                 onClick={() => {
                   const applied = handleRiichi('player');
@@ -458,7 +476,7 @@ export default function MahjongPage() {
       </div>
       {callPrompt && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-20">
-          <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-96">
+          <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
             <p className="font-bold mb-2">
               {callPrompt.canRon && !callPrompt.pon && !callPrompt.kan && callPrompt.chiOptions.length === 0
                 ? `ロンしますか？ (${callPrompt.tile})`
@@ -525,7 +543,7 @@ export default function MahjongPage() {
 
       {callPrompt && ronConfirmOpen && callPrompt.canRon && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-30">
-          <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-80">
+          <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
             <p className="font-bold mb-3">ロンしますか？</p>
             <div className="flex gap-2 justify-end">
               <button
@@ -554,7 +572,7 @@ export default function MahjongPage() {
 
       {winPrompt && !roundResult && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-30">
-          <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-80">
+          <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
             <p className="font-bold mb-3">ツモしますか？</p>
             <div className="flex gap-2 justify-end">
               <button
