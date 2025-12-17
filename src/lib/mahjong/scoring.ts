@@ -221,21 +221,38 @@ const extractAllConcealedShapes = (
 };
 
 const calcWaitFu = (shape: { pairTile: TileId; sets: SetShape[] }, winTile: TileId): number => {
-  let best = shape.pairTile === winTile ? 2 : 0; // tanki
+  // tanki wait
+  if (shape.pairTile === winTile) return 2;
+
+  // For simplified scoring, prefer the "best" assignment for the winning tile when ambiguous.
+  // Pinfu needs ryanmen; if any ryanmen assignment exists, treat wait as 0符.
+  let hasNonRyanmen = false;
+
   for (const s of shape.sets) {
     if (s.kind !== 'sequence') continue;
-    const tiles = s.tiles;
-    if (!tiles.includes(winTile)) continue;
-    const nums = tiles.map(tileNumber).sort((a, b) => a - b);
-    const start = nums[0];
-    const mid = nums[1];
+    if (!s.tiles.includes(winTile)) continue;
+
+    const nums = s.tiles.map(tileNumber).sort((a, b) => a - b);
+    const start = nums[0]!;
+    const mid = nums[1]!;
     const winNum = tileNumber(winTile);
-    if (winNum === mid) best = Math.max(best, 2); // kanchan
-    else if ((start === 1 && winNum === 3) || (start === 7 && winNum === 7)) best = Math.max(best, 2); // penchan
-    else best = Math.max(best, 0); // ryanmen / shanpon(handled elsewhere)
-    // If win tile completes triplet (shanpon) no wait fu; handled by leaving best as-is.
+
+    if (winNum === mid) {
+      hasNonRyanmen = true; // kanchan
+      continue;
+    }
+
+    const isPenchan = (start === 1 && winNum === 3) || (start === 7 && winNum === 7);
+    if (isPenchan) {
+      hasNonRyanmen = true;
+      continue;
+    }
+
+    // ryanmen
+    return 0;
   }
-  return best;
+
+  return hasNonRyanmen ? 2 : 0;
 };
 
 const calcFu = (opts: {
@@ -309,12 +326,7 @@ const detectYaku = (opts: {
     const allSequences = opts.sets.every((s) => s.kind === 'sequence');
     const pairIsValue =
       opts.pairTile !== null &&
-      (isHonor(opts.pairTile) &&
-        (opts.pairTile === 'z5' ||
-          opts.pairTile === 'z6' ||
-          opts.pairTile === 'z7' ||
-          opts.pairTile === opts.roundWind ||
-          opts.pairTile === opts.seatWind));
+      (opts.pairTile === 'z5' || opts.pairTile === 'z6' || opts.pairTile === 'z7' || opts.pairTile === opts.roundWind || opts.pairTile === opts.seatWind);
     if (opts.isMenzen && allSequences && !pairIsValue && opts.shape.isPinfuWait) yaku.push({ name: '平和', han: 1 });
 
     // Yakuhai (each)

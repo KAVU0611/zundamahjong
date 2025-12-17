@@ -190,13 +190,7 @@ const canDeclareRiichiFromHand = (baseHand: TileId[], drawn: TileId | null, meld
   // 13枚ならそのままテンパイ判定、14枚なら「どれか1枚切ってテンパイになれるか」を判定
   if (fullHand.length === 13) return isTenpai(fullHand);
   if (fullHand.length === 14) {
-    // もともと13枚の時点でテンパイなら、ツモ牌を切れば必ずテンパイ維持できる
-    // （特殊ID化しても判定がブレないよう保険）
-    if (drawn && isTenpai(baseHand)) return true;
-    return fullHand.some((_, index) => {
-      const afterDiscard = fullHand.filter((__, j) => j !== index);
-      return isTenpai(afterDiscard);
-    });
+    return isTenpaiWithDrawn(baseHand, drawn);
   }
   return false;
 };
