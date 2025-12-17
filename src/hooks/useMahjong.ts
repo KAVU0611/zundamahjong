@@ -934,24 +934,28 @@ export const useMahjong = () => {
 
       noteCallMade();
 
+      const originalDrawn = playerDrawn;
+
       if (candidate.kind === 'kakan') {
         const idx = findPonMeldIndexByBase(playerMelds, base);
         if (idx === -1) return false;
 
         const nextHand = [...playerHand];
         let addedTile: TileId | null = null;
-        let nextDrawn: TileId | null = playerDrawn;
+        let consumedDrawn = false;
 
-        if (nextDrawn && tileBase(nextDrawn) === base) {
-          addedTile = nextDrawn;
-          nextDrawn = null;
+        if (originalDrawn && tileBase(originalDrawn) === base) {
+          addedTile = originalDrawn;
+          consumedDrawn = true;
         } else {
           addedTile = removeOneTileByBase(nextHand, base);
         }
         if (!addedTile) return false;
 
+        if (originalDrawn && !consumedDrawn) nextHand.push(originalDrawn);
+
         setPlayerHand(nextHand.sort(sortHand));
-        setPlayerDrawn(nextDrawn);
+        setPlayerDrawn(null);
         setPlayerMelds((melds) => {
           const next = [...melds];
           const current = next[idx];
@@ -961,18 +965,20 @@ export const useMahjong = () => {
         });
       } else {
         const nextHand = [...playerHand];
-        let nextDrawn: TileId | null = playerDrawn;
         const taken: TileId[] = [];
+        let consumedDrawn = false;
 
         taken.push(...removeTilesByBase(nextHand, base, 4));
-        while (taken.length < 4 && nextDrawn && tileBase(nextDrawn) === base) {
-          taken.push(nextDrawn);
-          nextDrawn = null;
+        if (taken.length < 4 && originalDrawn && tileBase(originalDrawn) === base) {
+          taken.push(originalDrawn);
+          consumedDrawn = true;
         }
         if (taken.length !== 4) return false;
 
+        if (originalDrawn && !consumedDrawn) nextHand.push(originalDrawn);
+
         setPlayerHand(nextHand.sort(sortHand));
-        setPlayerDrawn(nextDrawn);
+        setPlayerDrawn(null);
         setPlayerMelds((m) => [...m, { type: 'kan', tiles: taken }]);
       }
 
