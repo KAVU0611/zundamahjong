@@ -183,6 +183,8 @@ export default function MahjongPage() {
   } = useMahjong();
 
   const { playSe, playVoice } = useSounds();
+  const isPlayerDealer = round?.dealer === 'player';
+  const isOpponentDealer = round?.dealer === 'opponent';
   const [ronConfirmOpen, setRonConfirmOpen] = React.useState(false);
   const prevOpponentMeldCountRef = React.useRef(0);
   const prevOpponentRiichiRef = React.useRef(false);
@@ -312,13 +314,19 @@ export default function MahjongPage() {
               <p className="text-[11px] text-green-100">供託はアガリで回収</p>
             </div>
             <div className="bg-green-900/80 px-3 py-2 rounded border border-green-700/60 min-w-[120px] flex-1">
-              <p className="text-xs">プレイヤー</p>
+              <p className="text-xs flex items-center gap-2">
+                プレイヤー
+                {isPlayerDealer && <span className="px-2 py-[2px] rounded bg-yellow-400 text-black font-bold text-[10px]">親</span>}
+              </p>
               <p className="text-lg sm:text-xl font-bold">{scores.player} 点</p>
               {riichiState.player && <p className="text-xs text-yellow-300">リーチ中</p>}
               {riichiIntent.player && !riichiState.player && <p className="text-[11px] text-yellow-200">リーチ準備ON</p>}
             </div>
             <div className="bg-green-900/80 px-3 py-2 rounded border border-green-700/60 min-w-[120px] flex-1">
-              <p className="text-xs">ずんだもん</p>
+              <p className="text-xs flex items-center gap-2">
+                ずんだもん
+                {isOpponentDealer && <span className="px-2 py-[2px] rounded bg-yellow-400 text-black font-bold text-[10px]">親</span>}
+              </p>
               <p className="text-lg sm:text-xl font-bold">{scores.opponent} 点</p>
               {riichiState.opponent && <p className="text-xs text-yellow-300">リーチ中</p>}
             </div>

@@ -163,10 +163,23 @@ const isWinningHand = (tiles: TileId[]) => {
   return false;
 };
 
-const isTenpai = (hand: TileId[], melds: Meld[]) => {
-  if (melds.length > 0) return false; // 門前のみリーチ可
-  const tiles = allTileIds;
-  return tiles.some((tile) => isWinningHand([...hand, tile]));
+const isTenpai = (hand: TileId[]) => allTileIds.some((tile) => isWinningHand([...hand, tile]));
+
+const isTenpaiWithDrawn = (hand: TileId[], drawn: TileId | null) => {
+  const fullHand = drawn ? [...hand, drawn] : [...hand];
+
+  // 1枚待ち判定（13枚相当: 13,10,7...）
+  if (fullHand.length % 3 === 1) return isTenpai(fullHand);
+
+  // ツモって14枚相当なら、どれか1枚切ってテンパイに残れるかで判定
+  if (fullHand.length % 3 === 2) {
+    return fullHand.some((_, index) => {
+      const afterDiscard = fullHand.filter((__, j) => j !== index);
+      return isTenpai(afterDiscard);
+    });
+  }
+
+  return false;
 };
 
 const canDeclareRiichiFromHand = (baseHand: TileId[], drawn: TileId | null, melds: Meld[], alreadyRiichi: boolean) => {
@@ -175,14 +188,14 @@ const canDeclareRiichiFromHand = (baseHand: TileId[], drawn: TileId | null, meld
   const fullHand = drawn ? [...baseHand, drawn] : [...baseHand];
 
   // 13枚ならそのままテンパイ判定、14枚なら「どれか1枚切ってテンパイになれるか」を判定
-  if (fullHand.length === 13) return isTenpai(fullHand, melds);
+  if (fullHand.length === 13) return isTenpai(fullHand);
   if (fullHand.length === 14) {
     // もともと13枚の時点でテンパイなら、ツモ牌を切れば必ずテンパイ維持できる
     // （特殊ID化しても判定がブレないよう保険）
-    if (drawn && isTenpai(baseHand, melds)) return true;
+    if (drawn && isTenpai(baseHand)) return true;
     return fullHand.some((_, index) => {
       const afterDiscard = fullHand.filter((__, j) => j !== index);
-      return isTenpai(afterDiscard, melds);
+      return isTenpai(afterDiscard);
     });
   }
   return false;
@@ -295,6 +308,7 @@ export const useMahjong = () => {
         kyotaku: number;
         score: ScoreResult | null;
         method: WinMethod | null;
+        willRepeat: boolean;
         applied: boolean;
       }
   >(null);
@@ -478,24 +492,42 @@ export const useMahjong = () => {
       setKyotaku(0);
     }
 
-    const dealer = round.dealer;
-    const willRepeat = roundResult.reason === 'ryuukyoku' || (!!roundResult.winner && roundResult.winner === dealer);
+    const willRepeat = roundResult.willRepeat;
+    if (roundResult.reason === 'ryuukyoku') {
+      // 流局は親がテンパイなら連荘、ノーテンなら親流れ。どちらも本場は加算。
+      setHonba((h) => h + 1);
+      if (willRepeat) {
+        startRound(roundIndex);
+        return;
+      }
+      if (roundIndex === ROUNDS.length - 1) return;
+      const idx = roundIndex + 1;
+      setRoundIndex(idx);
+      startRound(idx);
+      return;
+    }
+
     if (willRepeat) {
+      // 親のアガリは連荘（本場加算）
       setHonba((h) => h + 1);
       startRound(roundIndex);
       return;
     }
 
-    // 連荘しない場合：本場リセットして次局へ
+    // 親が流れたら本場リセットして次局へ
     setHonba(0);
     if (roundIndex === ROUNDS.length - 1) return;
     const idx = roundIndex + 1;
     setRoundIndex(idx);
     startRound(idx);
-  }, [roundIndex, startRound, roundResult, round.dealer]);
+  }, [roundIndex, startRound, roundResult]);
 
   const checkRyukyoku = useCallback(() => {
     if (!wall.length || drawCount >= MAX_JUN * 2) {
+      const dealer = round.dealer;
+      const dealerHand = dealer === 'player' ? playerHand : opponentHand;
+      const dealerDrawn = dealer === 'player' ? playerDrawn : opponentDrawn;
+      const dealerTenpai = isTenpaiWithDrawn(dealerHand, dealerDrawn);
       endRound({
         winner: null,
         loser: null,
@@ -508,12 +540,23 @@ export const useMahjong = () => {
         kyotaku,
         score: null,
         method: null,
-        willRepeat: true,
+        willRepeat: dealerTenpai,
       });
       return true;
     }
     return false;
-  }, [wall.length, drawCount, endRound, honba, kyotaku]);
+  }, [
+    wall.length,
+    drawCount,
+    endRound,
+    honba,
+    kyotaku,
+    round.dealer,
+    playerHand,
+    opponentHand,
+    playerDrawn,
+    opponentDrawn,
+  ]);
 
   const drawTileFor = useCallback(
     (who: Player) => {
@@ -775,7 +818,7 @@ export const useMahjong = () => {
       setPlayerRiver((r) => [...r, discard!]);
       if (riichiIntent.player && !riichiState.player) {
         // リーチ宣言準備中でも、切った後にテンパイを崩した場合はリーチしない（準備は解除）
-        if (isTenpai(newHand, playerMelds)) {
+        if (isTenpai(newHand)) {
           declareRiichi('player', discardIndex);
         } else {
           setRiichiIntent((i) => ({ ...i, player: false }));
@@ -861,7 +904,6 @@ export const useMahjong = () => {
       playerRiver,
       riichiIntent.player,
       riichiState.player,
-      playerMelds,
       opponentHand,
       canRonOnDiscard,
       handleWin,
@@ -891,7 +933,7 @@ export const useMahjong = () => {
       const riverIndex = opponentRiver.length;
       setOpponentRiver((r) => [...r, discard]);
       if ((intentToDeclareRiichi || riichiIntent.opponent) && !riichiState.opponent) {
-        if (isTenpai(fullHand, opponentMelds)) {
+        if (isTenpai(fullHand)) {
           declareRiichi('opponent', riverIndex);
         } else {
           setRiichiIntent((i) => ({ ...i, opponent: false }));
@@ -899,7 +941,7 @@ export const useMahjong = () => {
       }
       return discard;
     },
-    [opponentDrawn, opponentHand, opponentRiver, riichiIntent.opponent, riichiState.opponent, declareRiichi, opponentMelds],
+    [opponentDrawn, opponentHand, opponentRiver, riichiIntent.opponent, riichiState.opponent, declareRiichi],
   );
 
   const opponentTurn = useCallback(() => {
@@ -921,7 +963,7 @@ export const useMahjong = () => {
         return;
       }
       // リーチ判定
-      if (!opponentMelds.length && isTenpai(hand, opponentMelds) && !riichiState.opponent) {
+      if (!opponentMelds.length && isTenpai(hand) && !riichiState.opponent) {
         declaredIntent = handleRiichi('opponent');
       }
     } else {
