@@ -180,7 +180,31 @@ const isWinningHand = (tiles: TileId[]) => {
   return false;
 };
 
+const isWinningHandWithMeldCount = (concealedTiles: TileId[], meldCount: number) => {
+  const requiredSets = 4 - meldCount;
+  if (requiredSets < 0) return false;
+  if (concealedTiles.length !== requiredSets * 3 + 2) return false;
+  if (meldCount === 0 && isSevenPairs(concealedTiles)) return true;
+
+  const counts = countTiles(concealedTiles);
+  for (const [tile, ct] of Object.entries(counts)) {
+    if (ct < 2) continue;
+    const rest = cloneCounts(counts);
+    rest[tile] -= 2;
+    if (canFormSets(rest)) return true;
+  }
+  return false;
+};
+
 const isTenpai = (hand: TileId[]) => allTileIds.some((tile) => isWinningHand([...hand, tile]));
+
+const getWinningTilesWithMeldCount = (hand: TileId[], meldCount: number) => {
+  const waits = new Set<TileId>();
+  for (const tile of allTileIds) {
+    if (isWinningHandWithMeldCount([...hand, tile], meldCount)) waits.add(tile);
+  }
+  return waits;
+};
 
 const isTenpaiWithDrawn = (hand: TileId[], drawn: TileId | null) => {
   const fullHand = drawn ? [...hand, drawn] : [...hand];
@@ -287,6 +311,8 @@ export const useMahjong = () => {
   const doraIndicatorsRef = useRef<TileId[]>([]);
   const uraIndicatorsRef = useRef<TileId[]>([]);
   const kanActionLockRef = useRef(false);
+  const riichiWaitsRef = useRef<{ player: TileId[] | null; opponent: TileId[] | null }>({ player: null, opponent: null });
+  const rinshanEligibleRef = useRef<{ player: boolean; opponent: boolean }>({ player: false, opponent: false });
 
   const [playerHand, setPlayerHand] = useState<TileId[]>([]);
   const [opponentHand, setOpponentHand] = useState<TileId[]>([]);
@@ -443,6 +469,8 @@ export const useMahjong = () => {
     setRiichiIntent({ player: false, opponent: false });
     setRiichiDeclarationIndex({ player: null, opponent: null });
     setCalledRiverIndices({ player: [], opponent: [] });
+    riichiWaitsRef.current = { player: null, opponent: null };
+    rinshanEligibleRef.current = { player: false, opponent: false };
     setCallPrompt(null);
     setWinPrompt(null);
     setDeclinedWinKey(null);
@@ -540,7 +568,7 @@ export const useMahjong = () => {
   }, []);
 
   const declareRiichi = useCallback(
-    (who: Player, riverIndex: number) => {
+    (who: Player, riverIndex: number, lockedHand: TileId[]) => {
       // 900点以下はリーチできない（= 1000点未満では供託が払えない）
       if ((scores[who] ?? 0) < RIICHI_COST) return;
       let alreadyDeclared = false;
@@ -559,6 +587,10 @@ export const useMahjong = () => {
       setRiichiDeclarationIndex((idx) => ({ ...idx, [who]: riverIndex }));
       setScores((s) => ({ ...s, [who]: s[who] - RIICHI_COST }));
       setKyotaku((k) => k + 1);
+      riichiWaitsRef.current = {
+        ...riichiWaitsRef.current,
+        [who]: Array.from(getWinningTilesWithMeldCount(lockedHand, 0)).sort(),
+      };
       handleReaction('reach');
     },
     [handleReaction, anyCallMade, scores],
@@ -723,6 +755,22 @@ export const useMahjong = () => {
     [checkRyukyoku],
   );
 
+  const drawNormalTileFor = useCallback(
+    (who: Player) => {
+      rinshanEligibleRef.current = { ...rinshanEligibleRef.current, [who]: false };
+      return drawTileFor(who);
+    },
+    [drawTileFor],
+  );
+
+  const drawRinshanTileFor = useCallback(
+    (who: Player) => {
+      rinshanEligibleRef.current = { ...rinshanEligibleRef.current, [who]: true };
+      return drawTileFor(who);
+    },
+    [drawTileFor],
+  );
+
   const handleRiichi = useCallback(
     (who: Player): boolean => {
       if (riichiState[who]) return false;
@@ -761,6 +809,7 @@ export const useMahjong = () => {
       const remaining = Math.max(0, MAX_JUN * 2 - drawCount);
       const isHaitei = reason === 'tsumo' && remaining === 0;
       const isHoutei = reason === 'ron' && remaining === 0;
+      const isRinshan = reason === 'tsumo' && rinshanEligibleRef.current[winner];
       const score = calculateScore({
         concealedTiles: [...winnerHand, winTile],
         melds: winnerMelds,
@@ -771,6 +820,7 @@ export const useMahjong = () => {
         isIppatsu,
         isHaitei,
         isHoutei,
+        isRinshan,
         doraIndicators,
         uraIndicators,
         roundWind,
@@ -817,8 +867,64 @@ export const useMahjong = () => {
     ],
   );
 
+  const canWinWithYaku = useCallback(
+    (who: Player, method: WinMethod, winTile: TileId) => {
+      const hand = who === 'player' ? playerHand : opponentHand;
+      const melds = who === 'player' ? playerMelds : opponentMelds;
+
+      // アガリ形になっていなければ不可
+      if (!isWinningHandWithMeldCount([...hand, winTile], melds.length)) return false;
+
+      const isDealer = round.dealer === who;
+      const seatWind: TileId = isDealer ? 'z1' : 'z2';
+      const roundWind = getRoundWind(round.label);
+      const isDoubleRiichi = doubleRiichiState[who];
+      const isIppatsu = ippatsuEligible[who];
+      const remaining = Math.max(0, MAX_JUN * 2 - drawCount);
+      const isHaitei = method === 'tsumo' && remaining === 0;
+      const isHoutei = method === 'ron' && remaining === 0;
+      const isRinshan = method === 'tsumo' && rinshanEligibleRef.current[who];
+
+      const score = calculateScore({
+        concealedTiles: [...hand, winTile],
+        melds,
+        method,
+        isDealer,
+        isRiichi: riichiState[who],
+        isDoubleRiichi,
+        isIppatsu,
+        isHaitei,
+        isHoutei,
+        isRinshan,
+        doraIndicators,
+        uraIndicators,
+        roundWind,
+        seatWind,
+        winTile,
+      });
+
+      return score.baseYaku.length > 0;
+    },
+    [
+      playerHand,
+      opponentHand,
+      playerMelds,
+      opponentMelds,
+      round.dealer,
+      round.label,
+      doubleRiichiState,
+      ippatsuEligible,
+      drawCount,
+      riichiState,
+      doraIndicators,
+      uraIndicators,
+    ],
+  );
+
   const shouldOpponentCall = useCallback(
     (discard: TileId) => {
+      // リーチ後は鳴けない（ロン以外）。※暗槓のみ別途処理
+      if (riichiState.opponent) return null;
       const discardBase = tileBase(discard);
 
       const seatWind: TileId = round.dealer === 'opponent' ? 'z1' : 'z2';
@@ -866,7 +972,7 @@ export const useMahjong = () => {
 
       return null;
     },
-    [opponentHand, opponentMelds, round.dealer, round.label],
+    [opponentHand, opponentMelds, round.dealer, round.label, riichiState.opponent],
   );
 
   const canRonOnDiscard = useCallback(
@@ -874,9 +980,40 @@ export const useMahjong = () => {
       const hand = who === 'player' ? playerHand : opponentHand;
       const river = who === 'player' ? playerRiver : opponentRiver;
       if (isFuriten(hand, river)) return false;
-      return isWinningHand([...hand, tile]);
+      return canWinWithYaku(who, 'ron', tile);
     },
-    [playerHand, opponentHand, playerRiver, opponentRiver],
+    [playerHand, opponentHand, playerRiver, opponentRiver, canWinWithYaku],
+  );
+
+  const canPlayerRiichiAnkan = useCallback(
+    (base: TileId): boolean => {
+      if (!riichiState.player) return true;
+      if (!playerDrawn) return false;
+
+      const b = tileBase(base);
+      if (tileBase(playerDrawn) !== b) return false;
+
+      // 送りカン防止：リーチ時は「手牌に3枚」+「ツモって4枚目」だけ許可
+      const handCounts = countTiles(playerHand);
+      if ((handCounts[b] ?? 0) !== 3) return false;
+
+      const riichiWaits = riichiWaitsRef.current.player;
+      if (!riichiWaits) return false;
+
+      // 暗槓後も待ちが変わらないこと（233334m のような形を弾く）
+      const nextHand = [...playerHand];
+      const removed = removeTilesByBase(nextHand, b, 3);
+      if (removed.length !== 3) return false;
+      const meldCountAfter = playerMelds.length + 1;
+      const waitsAfter = Array.from(getWinningTilesWithMeldCount(nextHand, meldCountAfter)).sort();
+
+      if (waitsAfter.length !== riichiWaits.length) return false;
+      for (let i = 0; i < waitsAfter.length; i++) {
+        if (waitsAfter[i] !== riichiWaits[i]) return false;
+      }
+      return true;
+    },
+    [riichiState.player, playerDrawn, playerHand, playerMelds.length],
   );
 
   const kanCandidates = useMemo<KanCandidate[]>(() => {
@@ -903,8 +1040,18 @@ export const useMahjong = () => {
       return orderNum(a) - orderNum(b);
     };
 
-    return [...ankan.sort((a, b) => sortByBase(a.base, b.base)), ...kakan.sort((a, b) => sortByBase(a.base, b.base))];
-  }, [gameState, playerHand, playerDrawn, playerMelds]);
+    const sorted = [
+      ...ankan.sort((a, b) => sortByBase(a.base, b.base)),
+      ...kakan.sort((a, b) => sortByBase(a.base, b.base)),
+    ];
+
+    // リーチ後は暗槓のみ（加槓不可）。さらに待ちが変わらないケースだけ許可。
+    if (riichiState.player) {
+      return sorted.filter((c) => c.kind === 'ankan' && canPlayerRiichiAnkan(c.base));
+    }
+
+    return sorted;
+  }, [gameState, playerHand, playerDrawn, playerMelds, riichiState.player, canPlayerRiichiAnkan]);
 
   const declareKan = useCallback(
     (base: TileId): boolean => {
@@ -920,6 +1067,14 @@ export const useMahjong = () => {
       if (!candidate) {
         releaseLock();
         return false;
+      }
+
+      if (riichiState.player) {
+        // リーチ後は暗槓のみ許可
+        if (candidate.kind !== 'ankan' || !canPlayerRiichiAnkan(base)) {
+          releaseLock();
+          return false;
+        }
       }
 
       noteCallMade();
@@ -982,7 +1137,7 @@ export const useMahjong = () => {
       }
 
       revealDoraIndicator();
-      drawTileFor('player'); // 嶺上
+      drawRinshanTileFor('player'); // 嶺上
       setSkipDraw(false);
       setCurrentTurn('player');
       setGameState('player_turn');
@@ -990,7 +1145,7 @@ export const useMahjong = () => {
       setTimeout(releaseLock, 250);
       return true;
     },
-    [gameState, kanCandidates, noteCallMade, playerMelds, playerHand, playerDrawn, revealDoraIndicator, drawTileFor],
+    [gameState, kanCandidates, noteCallMade, playerMelds, playerHand, playerDrawn, revealDoraIndicator, drawRinshanTileFor, riichiState.player, canPlayerRiichiAnkan],
   );
 
   const promptCallForPlayer = useCallback(
@@ -1088,11 +1243,11 @@ export const useMahjong = () => {
 
       if (type === 'kan') {
         revealDoraIndicator();
-        drawTileFor('player'); // 嶺上
+        drawRinshanTileFor('player'); // 嶺上
         setSkipDraw(false);
       }
 	    },
-	    [callPrompt, handleWin, noteCallMade, drawTileFor, revealDoraIndicator, playerHand, opponentRiver, markCalledDiscard],
+	    [callPrompt, handleWin, noteCallMade, drawRinshanTileFor, revealDoraIndicator, playerHand, opponentRiver, markCalledDiscard],
 	  );
 
   const discardTile = useCallback(
@@ -1130,12 +1285,13 @@ export const useMahjong = () => {
 
       setPlayerDrawn(nextDrawn);
       setPlayerHand(newHand);
+      rinshanEligibleRef.current = { ...rinshanEligibleRef.current, player: false };
       const discardIndex = playerRiver.length;
       setPlayerRiver((r) => [...r, makeRiverEntry(discard!)]);
       if (riichiIntent.player && !riichiState.player) {
         // リーチ宣言準備中でも、切った後にテンパイを崩した場合はリーチしない（準備は解除）
         if (isTenpai(newHand)) {
-          declareRiichi('player', discardIndex);
+          declareRiichi('player', discardIndex, newHand);
         } else {
           setRiichiIntent((i) => ({ ...i, player: false }));
         }
@@ -1163,7 +1319,7 @@ export const useMahjong = () => {
           markCalledDiscard('player', discardIndex);
           setKuikaeForbiddenBase((k) => ({ ...k, opponent: discardBase }));
           revealDoraIndicator();
-          drawTileFor('opponent');
+          drawRinshanTileFor('opponent');
           setSkipDraw(true);
           setCurrentTurn('opponent');
           setGameState('opponent_turn');
@@ -1237,7 +1393,7 @@ export const useMahjong = () => {
       canRonOnDiscard,
       handleWin,
       checkRyukyoku,
-      drawTileFor,
+      drawRinshanTileFor,
       revealDoraIndicator,
       declareRiichi,
       markCalledDiscard,
@@ -1251,6 +1407,7 @@ const opponentDiscard = useCallback(
       // リーチ中はツモ牌をツモ切りする
       if (riichiState.opponent && tile) {
         setIppatsuEligible((i) => ({ ...i, opponent: false }));
+        rinshanEligibleRef.current = { ...rinshanEligibleRef.current, opponent: false };
         setOpponentDrawn(null);
         setOpponentRiver((r) => [...r, makeRiverEntry(tile)]);
         return tile;
@@ -1355,6 +1512,7 @@ const opponentDiscard = useCallback(
       const discardIndex = best.discardIndex;
 
       const discard = fullHand.splice(discardIndex, 1)[0];
+      rinshanEligibleRef.current = { ...rinshanEligibleRef.current, opponent: false };
       setOpponentHand(fullHand.sort(sortHand));
       setOpponentDrawn(null);
       const riverIndex = opponentRiver.length;
@@ -1367,7 +1525,7 @@ const opponentDiscard = useCallback(
         const afterCounts = counts34FromBases(afterBases);
         const shantenAfter = calculateShantenFromCounts(afterCounts, 0);
         if (shantenAfter === 0) {
-          declareRiichi('opponent', riverIndex);
+          declareRiichi('opponent', riverIndex, fullHand);
         } else if (intentToDeclareRiichi || riichiIntent.opponent) {
           setRiichiIntent((i) => ({ ...i, opponent: false }));
         }
@@ -1401,11 +1559,10 @@ const opponentDiscard = useCallback(
     // ツモチェック
     if (!skipDraw) {
       if (!drawnTile) {
-        drawnTile = drawTileFor('opponent');
+        drawnTile = drawNormalTileFor('opponent');
       }
       if (!drawnTile) return;
-      const hand = [...opponentHand, drawnTile];
-      if (isWinningHand(hand)) {
+      if (canWinWithYaku('opponent', 'tsumo', drawnTile)) {
         handleWin('opponent', 'tsumo', drawnTile);
         return;
       }
@@ -1444,11 +1601,11 @@ const opponentDiscard = useCallback(
     if (checkRyukyoku()) return;
     setCurrentTurn('player');
     setGameState('player_turn');
-    drawTileFor('player');
+    drawNormalTileFor('player');
   }, [
     gameState,
     skipDraw,
-    drawTileFor,
+    drawNormalTileFor,
     opponentHand,
     opponentMelds,
     handleWin,
@@ -1461,6 +1618,7 @@ const opponentDiscard = useCallback(
     checkRyukyoku,
     callPrompt,
     opponentDrawn,
+    canWinWithYaku,
   ]);
 
   useEffect(() => {
@@ -1472,21 +1630,19 @@ const opponentDiscard = useCallback(
   useEffect(() => {
     if (gameState === 'player_turn' && !playerDrawn && !skipDraw) {
       // 自動ツモ処理（巡目に入った直後に1枚引く）
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      drawTileFor('player');
+      drawNormalTileFor('player');
     }
-  }, [gameState, playerDrawn, skipDraw, drawTileFor]);
+  }, [gameState, playerDrawn, skipDraw, drawNormalTileFor]);
 
   useEffect(() => {
     if (gameState !== 'player_turn') return;
     if (!playerDrawn) return;
-    if (!isWinningHand([...playerHand, playerDrawn])) return;
+    if (!canWinWithYaku('player', 'tsumo', playerDrawn)) return;
     const key = `tsumo-${playerDrawn}-${drawCount}`;
     if (declinedWinKey === key) return;
     if (winPrompt?.key === key) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setWinPrompt({ method: 'tsumo', tile: playerDrawn, key });
-  }, [gameState, playerDrawn, playerHand, drawCount, declinedWinKey, winPrompt?.key]);
+  }, [gameState, playerDrawn, playerHand, drawCount, declinedWinKey, winPrompt?.key, canWinWithYaku]);
 
   const resolveWinPrompt = useCallback(
     (accept: boolean) => {
@@ -1511,6 +1667,7 @@ const opponentDiscard = useCallback(
     wall,
     deadWall,
     doraIndicators,
+    uraIndicators,
     doraTiles,
     uraDoraTiles,
     drawCount,

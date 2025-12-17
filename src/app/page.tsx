@@ -57,7 +57,7 @@ type TileProps = {
 
 const Tile: React.FC<TileProps> = ({ tileId, isBack = false, onClick, className = '', muted = false, horizontal = false }) => {
   const baseStyle =
-    'w-8 h-12 sm:w-10 sm:h-14 rounded-md shadow-md cursor-pointer select-none touch-manipulation transform transition-transform sm:hover:-translate-y-1 active:translate-y-0';
+    'w-8 h-12 sm:w-10 sm:h-14 shrink-0 rounded-md shadow-md cursor-pointer select-none touch-manipulation transform transition-transform sm:hover:-translate-y-1 active:translate-y-0';
   const thicknessStyle = 'border-b-4 border-gray-400';
   const emphasisStyle = muted ? 'opacity-60 saturate-75' : '';
   const orientationStyle = horizontal ? 'rotate-90 origin-center' : '';
@@ -157,6 +157,7 @@ export default function MahjongPage() {
     kyotaku,
     wall,
     doraIndicators,
+    uraIndicators,
     doraTiles,
     uraDoraTiles,
     drawCount,
@@ -373,7 +374,7 @@ export default function MahjongPage() {
         <div className="flex flex-col gap-3 bg-green-900/40 rounded-xl p-2 sm:p-3 shadow-inner border border-green-700/50">
           <section className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-start">
             <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
-              <div className="flex flex-nowrap items-center gap-1 bg-green-950/40 rounded-lg px-2 py-1 border border-green-700/50 overflow-x-auto max-w-full">
+              <div className="flex flex-nowrap items-center gap-1 bg-green-950/40 rounded-lg px-2 py-1 border border-green-700/50 overflow-x-auto no-scrollbar max-w-full w-full">
                 {opponentHand.map((_, i) => (
                   <Tile key={i} isBack className="cursor-default transform-none" />
                 ))}
@@ -439,7 +440,7 @@ export default function MahjongPage() {
 
           <section className="flex flex-col gap-2">
             <div className="w-full flex flex-col items-stretch gap-2 sm:gap-3 bg-green-950/40 rounded-lg px-2 sm:px-3 py-2 border border-green-700/40">
-              <div className="flex items-center gap-1 flex-nowrap overflow-x-auto">
+              <div className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
                 {playerHand.map((tile, i) => (
                   <Tile
                     key={tile}
@@ -708,12 +709,12 @@ export default function MahjongPage() {
                     <div className="mt-3">
                       <p className="text-sm font-bold text-green-50 mb-1">ずんだもんの手牌</p>
                       <div className="bg-black/20 rounded px-3 py-2">
-                        <div className="flex items-center gap-1 flex-nowrap overflow-x-auto">
+                        <div className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
                           {opponentHand.map((tile, i) => (
                             <Tile
                               key={`${tile}-${i}`}
                               tileId={tile}
-                              className="w-7 h-10 sm:w-8 sm:h-12 shadow-none cursor-default transform-none"
+                              className="w-12 h-[72px] sm:w-14 sm:h-[84px] shadow-none cursor-default transform-none"
                             />
                           ))}
                           {opponentWinTileForReveal && (
@@ -723,7 +724,7 @@ export default function MahjongPage() {
                               </span>
                               <Tile
                                 tileId={opponentWinTileForReveal}
-                                className="w-7 h-10 sm:w-8 sm:h-12 shadow-none cursor-default transform-none ring-2 ring-yellow-300"
+                                className="w-12 h-[72px] sm:w-14 sm:h-[84px] shadow-none cursor-default transform-none ring-2 ring-yellow-300"
                               />
                             </div>
                           )}
@@ -747,12 +748,13 @@ export default function MahjongPage() {
 
                   {roundResult.score?.yaku?.some((y) => y.name === '立直' || y.name === 'ダブル立直') ? (
                     <div className="mt-3">
-                      <p className="text-xs text-green-50/80 mb-1">裏ドラ</p>
-                      <div className="flex gap-1 flex-wrap">
-                        {uraDoraTiles.map((t, i) => (
+                      <p className="text-xs text-green-50/80 mb-1">裏ドラ表示牌</p>
+                      <div className="flex gap-1 flex-nowrap overflow-x-auto no-scrollbar">
+                        {uraIndicators.map((t, i) => (
                           <Tile key={`${t}-${i}`} tileId={t} className="cursor-default transform-none" />
                         ))}
                       </div>
+                      <p className="text-xs text-green-50/70 mt-1">裏ドラ: {uraDoraTiles.join(', ') || 'なし'}</p>
                     </div>
                   ) : null}
                 </>

@@ -17,6 +17,9 @@ export type Yaku = {
 };
 
 export type ScoreResult = {
+  // ドラ等を除いた「正式な役」
+  baseYaku: Yaku[];
+  baseHan: number;
   yaku: Yaku[];
   han: number;
   fu: number;
@@ -382,6 +385,7 @@ const detectYaku = (opts: {
   isIppatsu: boolean;
   isHaitei: boolean;
   isHoutei: boolean;
+  isRinshan: boolean;
   method: WinMethod;
   roundWind: TileId;
   seatWind: TileId;
@@ -393,6 +397,7 @@ const detectYaku = (opts: {
   else if (opts.isRiichi) yaku.push({ name: '立直', han: 1 });
   if ((opts.isRiichi || opts.isDoubleRiichi) && opts.isIppatsu) yaku.push({ name: '一発', han: 1 });
   if (opts.method === 'tsumo' && opts.isMenzen) yaku.push({ name: '門前清自摸和', han: 1 });
+  if (opts.isRinshan) yaku.push({ name: '嶺上開花', han: 1 });
   if (opts.isHaitei) yaku.push({ name: '海底摸月', han: 1 });
   if (opts.isHoutei) yaku.push({ name: '河底撈魚', han: 1 });
 
@@ -575,6 +580,7 @@ export const calculateScore = (opts: {
   isIppatsu?: boolean;
   isHaitei?: boolean;
   isHoutei?: boolean;
+  isRinshan?: boolean;
   doraIndicators: TileId[];
   uraIndicators: TileId[];
   roundWind: TileId; // z1..z4
@@ -637,6 +643,8 @@ export const calculateScore = (opts: {
     const limit = detectLimitName(han, fu);
     const base = limit ? limit.base : fu * Math.pow(2, han + 2);
     return {
+      baseYaku: [],
+      baseHan: 0,
       yaku: [],
       han,
       fu,
@@ -662,6 +670,7 @@ export const calculateScore = (opts: {
       isIppatsu: opts.isIppatsu ?? false,
       isHaitei: opts.isHaitei ?? false,
       isHoutei: opts.isHoutei ?? false,
+      isRinshan: opts.isRinshan ?? false,
       method: opts.method,
       roundWind: opts.roundWind,
       seatWind: opts.seatWind,
@@ -694,6 +703,8 @@ export const calculateScore = (opts: {
     if (uraDoraHan > 0) scoreYaku.push({ name: `裏ドラ ${uraDoraHan}`, han: uraDoraHan });
 
     return {
+      baseYaku: yaku,
+      baseHan: baseYakuHan,
       yaku: scoreYaku,
       han,
       fu,
