@@ -70,15 +70,51 @@ const allTileIds: TileId[] = (() => {
   return ids;
 })();
 
-const createInitialWall = (): TileId[] => {
-  const wall: TileId[] = [];
-  for (const id of allTileIds) {
-    for (let i = 0; i < 4; i++) {
-      // 赤5は各色1枚だけ（m5/p5/s5のうち1枚を赤として扱う）
-      const isAkaFive = (id === 'm5' || id === 'p5' || id === 's5') && i === 0;
-      wall.push(isAkaFive ? `${id}_dora_${i}` : `${id}_${i}`);
+const assertWallIsValid = (wall: TileId[]) => {
+  if (wall.length !== 136) {
+    throw new Error(`invalid wall length: expected 136, got ${wall.length}`);
+  }
+  const uniques = new Set(wall);
+  if (uniques.size !== wall.length) {
+    throw new Error(`invalid wall: duplicate tile ids detected (unique ${uniques.size} != ${wall.length})`);
+  }
+  const byBase: Record<string, { total: number; red: number }> = {};
+  for (const t of wall) {
+    const base = tileBase(t);
+    byBase[base] = byBase[base] ?? { total: 0, red: 0 };
+    byBase[base]!.total += 1;
+    if (t.includes('_dora_')) byBase[base]!.red += 1;
+  }
+  for (const base of allTileIds) {
+    const entry = byBase[base] ?? { total: 0, red: 0 };
+    if (entry.total !== 4) {
+      throw new Error(`invalid wall: ${base} count expected 4, got ${entry.total}`);
+    }
+    const isFive = base === 'm5' || base === 'p5' || base === 's5';
+    if (isFive) {
+      if (entry.red !== 1) throw new Error(`invalid wall: ${base} red count expected 1, got ${entry.red}`);
+    } else {
+      if (entry.red !== 0) throw new Error(`invalid wall: ${base} red count expected 0, got ${entry.red}`);
     }
   }
+};
+
+const createInitialWall = (): TileId[] => {
+  // Strict 136-tile wall:
+  // - 34 bases (m1-9, p1-9, s1-9, z1-7)
+  // - each base generates exactly 4 physical tiles (unique IDs)
+  // - only the first copy of 5s is red (encoded with `_dora_`)
+  const wall: TileId[] = [];
+  for (const base of allTileIds) {
+    const isFive = base === 'm5' || base === 'p5' || base === 's5';
+    for (let copyIndex = 0; copyIndex < 4; copyIndex++) {
+      const isRed = isFive && copyIndex === 0;
+      wall.push(isRed ? `${base}_dora_${copyIndex}` : `${base}_${copyIndex}`);
+    }
+  }
+  // Dev-time validation (kept lightweight; throws loudly if generation breaks)
+  assertWallIsValid(wall);
+
   for (let i = wall.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [wall[i], wall[j]] = [wall[j], wall[i]];
@@ -847,15 +883,8 @@ export const useMahjong = () => {
 	        return;
 	      }
 
-      noteCallMade();
-	      // 鳴いた牌は河に「鳴かれた記録」として残す（同じTileIdの重複を避ける）
-	      setOpponentRiver((r) => {
-	        const idx = r.lastIndexOf(tile);
-	        if (idx === -1) return r;
-	        const next = [...r];
-	        next[idx] = `${tile}_called`;
-	        return next;
-	      });
+	      noteCallMade();
+	      // 鳴かれた牌は河に残し、`calledRiverIndices` で薄く表示する
       setKuikaeForbiddenBase((k) => ({ ...k, player: tileBase(tile) }));
 	
 	      const nextHand = [...playerHand];
@@ -962,12 +991,6 @@ export const useMahjong = () => {
       if (call) {
         if (call.type === 'kan') {
           noteCallMade();
-          setPlayerRiver((r) => {
-            if (!r.length) return r;
-            const next = [...r];
-            next[next.length - 1] = `${discard}_called`;
-            return next;
-          });
           const tile = discard;
           const newHand = [...opponentHand];
           const removed = removeTilesByBase(newHand, discardBase, 3);
@@ -985,12 +1008,6 @@ export const useMahjong = () => {
         }
         if (call.type === 'pon') {
           noteCallMade();
-          setPlayerRiver((r) => {
-            if (!r.length) return r;
-            const next = [...r];
-            next[next.length - 1] = `${discard}_called`;
-            return next;
-          });
           const tile = discard;
           const newHand = [...opponentHand];
           const removed = removeTilesByBase(newHand, discardBase, 2);
@@ -1006,12 +1023,6 @@ export const useMahjong = () => {
         }
         if (call.type === 'chi') {
           noteCallMade();
-          setPlayerRiver((r) => {
-            if (!r.length) return r;
-            const next = [...r];
-            next[next.length - 1] = `${discard}_called`;
-            return next;
-          });
           const option = call.option ?? getChiOptions(opponentHand, discardBase)[0];
           const newHand = [...opponentHand];
           const meldTiles: TileId[] = [];
