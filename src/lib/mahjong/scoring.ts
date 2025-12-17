@@ -93,6 +93,8 @@ type HandShape = {
   isPinfuWait: boolean;
 };
 
+const isBlank = (t: TileId) => baseTile(t) === 'blank';
+
 const removeOneTile = (tiles: TileId[], target: TileId): TileId[] => {
   const targetBase = baseTile(target);
   const out: TileId[] = [];
@@ -357,6 +359,8 @@ const detectYaku = (opts: {
   isRiichi: boolean;
   isDoubleRiichi: boolean;
   isIppatsu: boolean;
+  isHaitei: boolean;
+  isHoutei: boolean;
   method: WinMethod;
   roundWind: TileId;
   seatWind: TileId;
@@ -368,6 +372,8 @@ const detectYaku = (opts: {
   else if (opts.isRiichi) yaku.push({ name: '立直', han: 1 });
   if ((opts.isRiichi || opts.isDoubleRiichi) && opts.isIppatsu) yaku.push({ name: '一発', han: 1 });
   if (opts.method === 'tsumo' && opts.isMenzen) yaku.push({ name: '門前清自摸和', han: 1 });
+  if (opts.isHaitei) yaku.push({ name: '海底摸月', han: 1 });
+  if (opts.isHoutei) yaku.push({ name: '河底撈魚', han: 1 });
 
   if (opts.shape.isSevenPairs) {
     yaku.push({ name: '七対子', han: 2 });
@@ -546,6 +552,8 @@ export const calculateScore = (opts: {
   isRiichi: boolean;
   isDoubleRiichi?: boolean;
   isIppatsu?: boolean;
+  isHaitei?: boolean;
+  isHoutei?: boolean;
   doraIndicators: TileId[];
   uraIndicators: TileId[];
   roundWind: TileId; // z1..z4
@@ -556,7 +564,7 @@ export const calculateScore = (opts: {
   const openSetShapes = buildMeldShapes(opts.melds);
 
   const meldTileInstances = opts.melds.flatMap((m) => m.tiles);
-  const allTiles = [...opts.concealedTiles, ...meldTileInstances];
+  const allTiles = [...opts.concealedTiles, ...meldTileInstances].filter((t) => !isBlank(t));
 
   const preWinConcealedTiles = removeOneTile(opts.concealedTiles, opts.winTile);
   const possibleWinTiles = listPossibleWinTiles({
@@ -630,6 +638,8 @@ export const calculateScore = (opts: {
       isRiichi: opts.isRiichi,
       isDoubleRiichi: opts.isDoubleRiichi ?? false,
       isIppatsu: opts.isIppatsu ?? false,
+      isHaitei: opts.isHaitei ?? false,
+      isHoutei: opts.isHoutei ?? false,
       method: opts.method,
       roundWind: opts.roundWind,
       seatWind: opts.seatWind,

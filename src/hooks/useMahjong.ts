@@ -620,25 +620,30 @@ export const useMahjong = () => {
       const winnerHand = winner === 'player' ? playerHand : opponentHand;
       const winnerMelds = winner === 'player' ? playerMelds : opponentMelds;
 
-	      const isDealer = round.dealer === winner;
-	      const seatWind: TileId = isDealer ? 'z1' : 'z2';
-	      const roundWind = getRoundWind(round.label);
-	      const isDoubleRiichi = doubleRiichiState[winner];
-	      const isIppatsu = ippatsuEligible[winner];
-	      const score = calculateScore({
-	        concealedTiles: [...winnerHand, winTile],
-	        melds: winnerMelds,
-	        method: reason,
-	        isDealer,
-	        isRiichi: riichiState[winner],
-	        isDoubleRiichi,
-	        isIppatsu,
-	        doraIndicators,
-	        uraIndicators,
-	        roundWind,
-	        seatWind,
-	        winTile,
-	      });
+      const isDealer = round.dealer === winner;
+      const seatWind: TileId = isDealer ? 'z1' : 'z2';
+      const roundWind = getRoundWind(round.label);
+      const isDoubleRiichi = doubleRiichiState[winner];
+      const isIppatsu = ippatsuEligible[winner];
+      const remaining = Math.max(0, MAX_JUN * 2 - drawCount);
+      const isHaitei = reason === 'tsumo' && remaining === 0;
+      const isHoutei = reason === 'ron' && remaining === 0;
+      const score = calculateScore({
+        concealedTiles: [...winnerHand, winTile],
+        melds: winnerMelds,
+        method: reason,
+        isDealer,
+        isRiichi: riichiState[winner],
+        isDoubleRiichi,
+        isIppatsu,
+        isHaitei,
+        isHoutei,
+        doraIndicators,
+        uraIndicators,
+        roundWind,
+        seatWind,
+        winTile,
+      });
 
       const handPoints = score.totalPoints;
       const honbaPoints = honba * 300;
@@ -668,15 +673,16 @@ export const useMahjong = () => {
       opponentMelds,
 	      round.dealer,
 	      round.label,
-	      riichiState,
-	      doubleRiichiState,
-	      ippatsuEligible,
-	      doraIndicators,
-	      uraIndicators,
-	      honba,
-	      kyotaku,
-	    ],
-	  );
+      riichiState,
+      doubleRiichiState,
+      ippatsuEligible,
+      doraIndicators,
+      uraIndicators,
+      drawCount,
+      honba,
+      kyotaku,
+    ],
+  );
 
   const canRonOnDiscard = useCallback(
     (who: Player, tile: TileId) => {
@@ -775,6 +781,13 @@ export const useMahjong = () => {
 	      }
 
 	      noteCallMade();
+	      // 鳴いた牌は河から取り除く（見た目/枚数の整合性用にBlankへ置換）
+	      setOpponentRiver((r) => {
+	        if (!r.length) return r;
+	        const next = [...r];
+	        next[next.length - 1] = 'blank';
+	        return next;
+	      });
 	
 	      const nextHand = [...playerHand];
 	      let meldToAdd: Meld | null = null;
@@ -876,14 +889,20 @@ export const useMahjong = () => {
       const opponentPon = canPon(opponentHand, discardBase);
       const opponentKan = canKanFromDiscard(opponentHand, discardBase);
 
-	      if (opponentPon || opponentKan || opponentChi.length) {
-	        const choose = opponentKan ? 'kan' : opponentPon ? 'pon' : opponentChi.length ? 'chi' : null;
-	        if (choose === 'kan') {
-	          noteCallMade();
-	          const tile = discard;
-	          const newHand = [...opponentHand];
-	          const removed = removeTilesByBase(newHand, discardBase, 3);
-	          if (removed.length !== 3) return;
+      if (opponentPon || opponentKan || opponentChi.length) {
+        const choose = opponentKan ? 'kan' : opponentPon ? 'pon' : opponentChi.length ? 'chi' : null;
+        if (choose === 'kan') {
+          noteCallMade();
+          setPlayerRiver((r) => {
+            if (discardIndex < 0 || discardIndex >= r.length) return r;
+            const next = [...r];
+            next[discardIndex] = 'blank';
+            return next;
+          });
+          const tile = discard;
+          const newHand = [...opponentHand];
+          const removed = removeTilesByBase(newHand, discardBase, 3);
+          if (removed.length !== 3) return;
           setOpponentHand(newHand);
           setOpponentMelds((m) => [...m, { type: 'kan', tiles: [tile, ...removed] }]);
           markCalledDiscard('player', discardIndex);
@@ -893,13 +912,19 @@ export const useMahjong = () => {
           setCurrentTurn('opponent');
           setGameState('opponent_turn');
 	          return;
-	        }
-	        if (choose === 'pon') {
-	          noteCallMade();
-	          const tile = discard;
-	          const newHand = [...opponentHand];
-	          const removed = removeTilesByBase(newHand, discardBase, 2);
-	          if (removed.length !== 2) return;
+        }
+        if (choose === 'pon') {
+          noteCallMade();
+          setPlayerRiver((r) => {
+            if (discardIndex < 0 || discardIndex >= r.length) return r;
+            const next = [...r];
+            next[discardIndex] = 'blank';
+            return next;
+          });
+          const tile = discard;
+          const newHand = [...opponentHand];
+          const removed = removeTilesByBase(newHand, discardBase, 2);
+          if (removed.length !== 2) return;
           setOpponentHand(newHand);
           setOpponentMelds((m) => [...m, { type: 'pon', tiles: [tile, ...removed] }]);
           markCalledDiscard('player', discardIndex);
@@ -907,12 +932,18 @@ export const useMahjong = () => {
           setCurrentTurn('opponent');
           setGameState('opponent_turn');
 	          return;
-	        }
-	        if (choose === 'chi') {
-	          noteCallMade();
-	          const option = opponentChi[0];
-	          const newHand = [...opponentHand];
-	          const meldTiles: TileId[] = [];
+        }
+        if (choose === 'chi') {
+          noteCallMade();
+          setPlayerRiver((r) => {
+            if (discardIndex < 0 || discardIndex >= r.length) return r;
+            const next = [...r];
+            next[discardIndex] = 'blank';
+            return next;
+          });
+          const option = opponentChi[0];
+          const newHand = [...opponentHand];
+          const meldTiles: TileId[] = [];
           for (const t of option) {
             if (t === discardBase) {
               meldTiles.push(discard);
