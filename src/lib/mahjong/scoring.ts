@@ -377,6 +377,16 @@ const calcFu = (opts: {
   return roundUpToTens(fu);
 };
 
+const countConcealedTripletLikeSets = (sets: SetShape[], method: WinMethod, winTile: TileId) => {
+  const winTileBase = baseTile(winTile);
+
+  return sets.filter((s) => {
+    if (s.kind !== 'triplet' && s.kind !== 'quad') return false;
+    const completedByRon = method === 'ron' && !s.open && s.tile === winTileBase;
+    return !s.open && !completedByRon;
+  }).length;
+};
+
 const detectYaku = (opts: {
   allTiles: TileId[];
   sets: SetShape[];
@@ -392,6 +402,7 @@ const detectYaku = (opts: {
   roundWind: TileId;
   seatWind: TileId;
   shape: HandShape;
+  winTile: TileId;
 }): Yaku[] => {
   const yaku: Yaku[] = [];
 
@@ -443,9 +454,7 @@ const detectYaku = (opts: {
     }
 
     // Sanankou (simplified: count concealed triplets/quads in the fixed decomposition)
-    const concealedTriplets = opts.sets.filter(
-      (s) => (s.kind === 'triplet' || s.kind === 'quad') && !s.open,
-    ).length;
+    const concealedTriplets = countConcealedTripletLikeSets(opts.sets, opts.method, opts.winTile);
     if (concealedTriplets >= 3) yaku.push({ name: '三暗刻', han: 2 });
 
     // Sankantsu
@@ -678,6 +687,7 @@ export const calculateScore = (opts: {
       roundWind: opts.roundWind,
       seatWind: opts.seatWind,
       shape,
+      winTile: opts.winTile,
     });
 
     const baseYakuHan = yaku.reduce((sum, y) => sum + y.han, 0);
