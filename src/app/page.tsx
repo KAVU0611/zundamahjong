@@ -3,8 +3,9 @@
 import React from 'react';
 import Image from 'next/image';
 import { useMahjong, TileId, GameState } from '../hooks/useMahjong';
-import { useSounds, VoiceKey } from '../hooks/useSounds';
+import { useSounds, VoiceKey, VoiceTuning } from '../hooks/useSounds';
 import { TILE_ASSET_PATHS, TILE_ID_TO_IMAGE_MAP } from './tileAssets';
+import { pickZundaQuote, ZundamonQuoteAudio, type ZundaQuoteCategory } from '../lib/zundaQuotes';
 
 const parseTileIdForDisplay = (tileId: TileId): { base: TileId; isRed: boolean } => {
   const dashParts = tileId.split('-');
@@ -103,6 +104,10 @@ const ZUNDAMON_STATES = {
   match_end: { img: 'normal.png', text: 'おつかれさまなのだ。' },
 };
 
+// LOSE_QUOTE_LONG: プレイヤー勝利時の長い煽りセリフ（UI/音声で共用）
+const LOSE_QUOTE_LONG =
+  'あーあ、そう来ちゃったのだ。まあ、たまたまなのだ。麻雀っていうのは不確定情報ゲームだから、確率のイタズラで正解を引くこともあるのだ。それを「実力」だと勘違いするのが、まあ人間の可愛いところなんだけど。\n今回のボクの敗因は、君がセオリー無視の「期待値マイナス打牌」をしてきたことによるバタフライエフェクトなのだ。本来ならボクの勝ちルートだったのに、ノイズが混ざったせいで計算が狂っただけなのだ。\nそもそも今の配牌、統計的に見ても偏りすぎてたし、乱数生成アルゴリズムのバグを疑うレベルなのだ。今回は「ハンデ」として勝ちを譲ってあげるけど、勘違いしないでほしいのだ。次やったらボクの論理的思考が君の運だけ麻雀を粉砕するから、今のうちにスクショでも撮って喜んでおけばいいのだ。\n……はいはい、おめでとうなのだ。すごいすごい。……って、本気で喜んでるのだ？ 引くわー。今のボク、実は「接待モード」のレベル1だったんだけど。君が気持ちよく勝てるように、わざと危険牌を掴むようにプログラムされてただけなのだ。\nつまり君は、ボクの手のひらの上で踊らされてただけってこと。それを「勝った！」って大喜びできるそのメンタル、ある意味尊敬するのだ。統計的には君の勝率は3%しかなかったのに、たまたま上振れただけの事象に一喜一憂できるなんて、人間って本当に燃費のいい生き物なのだ。\nまあ、ボクはAIだから悔しくなんてないけど？ 全然？ ただのデータ収集の一環だし？ ……ふん、次は本気出すから覚悟するのだ。';
+
 const ZUNDA_VOICE_MAP = {
   start: { file: 'zunda_start.wav', text: 'よろしくなのだ、絶対負けないのだ' },
   dora: { file: 'zunda_dora.wav', text: 'お、ドラ切ったのだ？' },
@@ -114,6 +119,7 @@ const ZUNDA_VOICE_MAP = {
   riichi: { file: 'zunda_riichi.wav', text: 'リーチなのだ、覚悟するのだ' },
   tsumo: { file: 'zunda_tsumo.wav', text: 'ツモ！文句ないのだ' },
   ron: { file: 'zunda_ron.wav', text: 'ロン！弱い、弱すぎるのだｗ' },
+  player_win: { file: 'zunda_player_win.wav', text: LOSE_QUOTE_LONG },
 };
 
 type ZundaVoiceKey = keyof typeof ZUNDA_VOICE_MAP;
@@ -128,12 +134,26 @@ const ZUNDA_VOICE_KEY_TO_SOUND: Record<ZundaVoiceKey, `zunda_${string}`> = {
   riichi: 'zunda_riichi',
   tsumo: 'zunda_tsumo',
   ron: 'zunda_ron',
+  player_win: 'zunda_player_win',
 };
 
-const Zundamon: React.FC<{ mode: keyof typeof ZUNDAMON_STATES; text: string }> = ({ mode, text }) => {
+const Zundamon: React.FC<{ mode: keyof typeof ZUNDAMON_STATES; text: string; quoteText?: string; quoteKey?: number }> = ({
+  mode,
+  text,
+  quoteText,
+  quoteKey,
+}) => {
   const state = ZUNDAMON_STATES[mode] || ZUNDAMON_STATES.waiting;
   return (
-    <div className="flex flex-col items-center justify-center">
+    <div className="flex flex-col items-center justify-center relative">
+      {quoteText && (
+        <div
+          key={quoteKey}
+          className="absolute -top-3 left-full ml-2 bg-white text-gray-900 rounded-lg shadow-lg px-3 py-2 text-sm max-w-[240px] z-10 bubble-pop"
+        >
+          {quoteText}
+        </div>
+      )}
       <div className="w-28 h-28 sm:w-36 sm:h-36 relative">
         <Image src={`/zunda/${state.img}`} alt="Zundamon" fill unoptimized className="object-contain" />
       </div>
@@ -239,6 +259,55 @@ const PlayerHand: React.FC<PlayerHandProps> = ({
 };
 
 export default function MahjongPage() {
+  const { playSe, playVoice, playVoiceDynamic, playVoiceSource } = useSounds();
+  const [zundaFullText, setZundaFullText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
+  const [zundaDisplayedText, setZundaDisplayedText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
+  const [zundaTextSource, setZundaTextSource] = React.useState<'state' | 'voice'>('state');
+  const zundaVoiceResetTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const [quoteText, setQuoteText] = React.useState('');
+  const [quoteKey, setQuoteKey] = React.useState(0);
+  const quoteHideTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const zundamonModeRef = React.useRef<keyof typeof ZUNDAMON_STATES>('waiting');
+
+  const triggerQuote = React.useCallback(
+    (category: ZundaQuoteCategory, force: boolean, voiceParams?: VoiceTuning) => {
+      if (!force && Math.random() >= 0.3) return;
+      const text = pickZundaQuote(category);
+      if (!text) return;
+      if (zundaVoiceResetTimerRef.current) clearTimeout(zundaVoiceResetTimerRef.current);
+      if (quoteHideTimerRef.current) clearTimeout(quoteHideTimerRef.current);
+      setZundaTextSource('voice');
+      setZundaFullText(text);
+      setZundaDisplayedText('');
+      setQuoteText(text);
+      setQuoteKey(Date.now());
+      quoteHideTimerRef.current = setTimeout(() => setQuoteText(''), 4500);
+      const baseText = ZUNDAMON_STATES[zundamonModeRef.current]?.text ?? ZUNDAMON_STATES.waiting.text;
+      zundaVoiceResetTimerRef.current = setTimeout(() => {
+        setZundaTextSource('state');
+        setZundaFullText(baseText);
+        setZundaDisplayedText('');
+      }, 5000);
+      const assets = ZundamonQuoteAudio[category];
+      if (assets && assets.length) {
+        const asset = assets.length === 1 ? assets[0]! : assets[Math.floor(Math.random() * assets.length)]!;
+        playVoiceSource({ type: 'asset', url: asset });
+      } else if (voiceParams) {
+        playVoiceDynamic(text, voiceParams);
+      } else {
+        playVoiceDynamic(text);
+      }
+    },
+    [playVoiceDynamic, playVoiceSource],
+  );
+
+  const handleQuote = React.useCallback(
+    (category: ZundaQuoteCategory, options?: { force?: boolean; voiceParams?: VoiceTuning }) => {
+      triggerQuote(category, options?.force ?? false, options?.voiceParams);
+    },
+    [triggerQuote],
+  );
+
   const {
     gameState,
     round,
@@ -278,14 +347,11 @@ export default function MahjongPage() {
     resolveCall,
     resolveWinPrompt,
     handleRiichi,
-  } = useMahjong();
-
-  const { playSe, playVoice } = useSounds();
-  const [zundaFullText, setZundaFullText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
-  const [zundaDisplayedText, setZundaDisplayedText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
-  const [zundaTextSource, setZundaTextSource] = React.useState<'state' | 'voice'>('state');
-  const zundaVoiceResetTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  } = useMahjong({ onQuote: handleQuote });
   const zundamonMode = (reaction === 'none' ? (gameState as keyof typeof ZUNDAMON_STATES) : reaction) ?? 'waiting';
+  React.useEffect(() => {
+    zundamonModeRef.current = zundamonMode;
+  }, [zundamonMode]);
   const isPlayerDealer = round?.dealer === 'player';
   const isOpponentDealer = round?.dealer === 'opponent';
   const [kanSelectOpen, setKanSelectOpen] = React.useState(false);
@@ -315,13 +381,14 @@ export default function MahjongPage() {
     setZundaDisplayedText('');
     if (!zundaFullText) return;
     let index = 0;
+    const typingIntervalMs = zundaFullText === LOSE_QUOTE_LONG ? 22 : 50;
     const interval = setInterval(() => {
       index += 1;
       setZundaDisplayedText(zundaFullText.slice(0, index));
       if (index >= zundaFullText.length) {
         clearInterval(interval);
       }
-    }, 50);
+    }, typingIntervalMs);
     return () => clearInterval(interval);
   }, [zundaFullText]);
 
@@ -356,6 +423,9 @@ export default function MahjongPage() {
     return () => {
       if (zundaVoiceResetTimerRef.current) {
         clearTimeout(zundaVoiceResetTimerRef.current);
+      }
+      if (quoteHideTimerRef.current) {
+        clearTimeout(quoteHideTimerRef.current);
       }
     };
   }, []);
@@ -419,6 +489,9 @@ export default function MahjongPage() {
       if (roundResult.winner === 'opponent') {
         playZundaVoice(roundResult.reason === 'tsumo' ? 'tsumo' : 'ron');
       }
+      if (roundResult.winner === 'player') {
+        playZundaVoice('player_win');
+      }
     }
   }, [roundResult, playSe, playZundaVoice]);
 
@@ -462,6 +535,25 @@ export default function MahjongPage() {
     };
   }, [roundResult]);
 
+  const shareText = React.useMemo(() => {
+    if (!roundResult) return '';
+    const roundLabel = round?.label ?? '対局';
+    if (roundResult.reason === 'ryuukyoku') {
+      return `ずんだ麻雀 ${roundLabel}は流局。スコア: あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点`;
+    }
+    const method = roundResult.reason === 'tsumo' ? 'ツモ' : 'ロン';
+    const winnerLabel = roundResult.winner === 'player' ? 'あなた' : 'ずんだもん';
+    const pointsText = roundResult.points ? ` (${roundResult.points}点)` : '';
+    return `ずんだ麻雀 ${roundLabel}で${winnerLabel}の${method}${pointsText}！ スコア: あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点`;
+  }, [roundResult, round, scores]);
+
+  const handleShareToX = React.useCallback(() => {
+    if (!shareText) return;
+    if (typeof window === 'undefined') return;
+    const intentUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+    window.open(intentUrl, '_blank', 'noopener,noreferrer');
+  }, [shareText]);
+
   const handleDiscardFromHand = React.useCallback(
     (index: number) => {
       playSe('discard');
@@ -504,7 +596,7 @@ export default function MahjongPage() {
           <div>
             <p className="text-sm text-green-100">{round?.label ?? '---'}</p>
             <h1 className="text-2xl sm:text-3xl font-bold leading-tight">ずんだ麻雀（2人打ち）</h1>
-            <p className="text-xs text-green-100">東1→東2→南1→南2で終了。山が枯れたら流局。</p>
+            <p className="text-xs text-green-100">東1→東2→南1→南2で終了。残巡0で牌を切った瞬間に流局（ロンのみ可）。</p>
           </div>
           <div className="flex flex-wrap gap-2 items-stretch">
             <div className="bg-green-900/80 px-3 py-2 rounded border border-green-700/60 min-w-[120px] flex-1">
@@ -590,7 +682,7 @@ export default function MahjongPage() {
               </div>
 
               <div className="order-1 sm:order-2 flex flex-col items-center gap-1">
-                <Zundamon mode={zundamonMode} text={zundaDisplayedText} />
+                <Zundamon mode={zundamonMode} text={zundaDisplayedText} quoteText={quoteText} quoteKey={quoteKey} />
               </div>
 
               <div className="order-3 text-center bg-green-950/50 rounded-lg p-2 sm:p-3 border border-green-700/40 h-full flex flex-col justify-center">
@@ -883,6 +975,12 @@ export default function MahjongPage() {
                     </div>
                   </div>
 
+                  {roundResult.winner === 'player' && (
+                    <div className="mt-3 bg-black/20 rounded px-3 py-2 text-sm text-green-100 whitespace-pre-line">
+                      {LOSE_QUOTE_LONG}
+                    </div>
+                  )}
+
                   {roundResult.winner === 'opponent' && (
                     <div className="mt-3">
                       <p className="text-sm font-bold text-green-50 mb-1">ずんだもんの手牌</p>
@@ -939,6 +1037,21 @@ export default function MahjongPage() {
               )}
             </div>
           )}
+
+          <div className="flex flex-wrap gap-2 justify-center mb-2">
+            <button
+              onClick={() => {
+                playSe('click');
+                handleShareToX();
+              }}
+              disabled={!shareText}
+              className={`px-5 py-2 rounded-lg font-bold border border-white/30 bg-black/30 hover:bg-black/20 ${
+                !shareText ? 'opacity-60 cursor-not-allowed' : ''
+              }`}
+            >
+              X に投稿
+            </button>
+          </div>
 
           {gameState !== 'match_end' && (
             <button

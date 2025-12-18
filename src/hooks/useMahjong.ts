@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { calculateScore, nextDoraTile, type ScoreResult, type WinMethod } from '../lib/mahjong/scoring';
+import { type ZundaQuoteCategory } from '../lib/zundaQuotes';
 import { createShuffledWall } from '../lib/mahjong/wall';
 import { allTileBases, calculateShantenFromCounts, counts34FromBases, tileBaseToIndex } from '../lib/mahjong/shanten';
 
@@ -277,7 +278,6 @@ const isHonorBase = (base: TileId) => base[0] === 'z';
 const baseNumber = (base: TileId) => parseInt(base.slice(1), 10);
 const isTerminalBase = (base: TileId) => !isHonorBase(base) && (baseNumber(base) === 1 || baseNumber(base) === 9);
 const isSimpleBase = (base: TileId) => !isHonorBase(base) && baseNumber(base) >= 2 && baseNumber(base) <= 8;
-const isTerminalOrHonorBase = (base: TileId) => isHonorBase(base) || isTerminalBase(base);
 const countDoraTiles = (tiles: TileId[], doraList: TileId[]) => {
   let total = 0;
   for (const t of tiles) {
@@ -305,7 +305,9 @@ const isFuriten = (hand: TileId[], river: RiverEntry[], meldCount: number) => {
 
 const getRoundWind = (label: string): TileId => (label.startsWith('東') ? 'z1' : 'z2');
 
-export const useMahjong = () => {
+type QuoteTriggerOptions = { force?: boolean; voiceParams?: { speedScale?: number; pitchScale?: number; intonationScale?: number } };
+
+export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, options?: QuoteTriggerOptions) => void }) => {
   const [gameState, setGameState] = useState<GameState>('waiting');
   const [roundIndex, setRoundIndex] = useState(0);
   const [honba, setHonba] = useState(0);
@@ -323,6 +325,7 @@ export const useMahjong = () => {
   const kanActionLockRef = useRef(false);
   const riichiWaitsRef = useRef<{ player: TileId[] | null; opponent: TileId[] | null }>({ player: null, opponent: null });
   const rinshanEligibleRef = useRef<{ player: boolean; opponent: boolean }>({ player: false, opponent: false });
+  const earlyQuoteDoneRef = useRef(false);
 
   const [playerHand, setPlayerHand] = useState<TileId[]>([]);
   const [opponentHand, setOpponentHand] = useState<TileId[]>([]);
@@ -420,12 +423,10 @@ export const useMahjong = () => {
     if (total === 0) return;
     const over = Object.entries(counts).filter(([, ct]) => ct > 4);
     if (over.length) {
-      // eslint-disable-next-line no-console
       console.error('Tile integrity violation (>4 copies):', over);
     }
 
     if (total !== 136) {
-      // eslint-disable-next-line no-console
       console.error(`Tile integrity violation (total != 136): ${total}`);
     }
   }, [
@@ -445,10 +446,10 @@ export const useMahjong = () => {
   ]);
   const canRiichi = useMemo(
     () => ({
-      player: canDeclareRiichiFromHand(playerHand, playerDrawn, playerMelds, riichiState.player),
-      opponent: canDeclareRiichiFromHand(opponentHand, opponentDrawn, opponentMelds, riichiState.opponent),
+      player: remainingJun > 0 && canDeclareRiichiFromHand(playerHand, playerDrawn, playerMelds, riichiState.player),
+      opponent: remainingJun > 0 && canDeclareRiichiFromHand(opponentHand, opponentDrawn, opponentMelds, riichiState.opponent),
     }),
-    [playerHand, playerDrawn, playerMelds, riichiState.player, opponentHand, opponentDrawn, opponentMelds, riichiState.opponent],
+    [playerHand, playerDrawn, playerMelds, riichiState.player, opponentHand, opponentDrawn, opponentMelds, riichiState.opponent, remainingJun],
   );
 
   const resetRoundState = useCallback(() => {
@@ -487,6 +488,7 @@ export const useMahjong = () => {
     setDeclinedWinKey(null);
     setRoundResult(null);
     setReaction('none');
+    earlyQuoteDoneRef.current = false;
   }, []);
 
   const riverSeqRef = useRef(0);
@@ -564,6 +566,12 @@ export const useMahjong = () => {
   const remainingJun = useMemo(() => Math.max(0, MAX_JUN * 2 - drawCount), [drawCount]);
 
   const handleReaction = useCallback((type: Reaction) => setReaction(type), []);
+  const emitQuote = useCallback(
+    (category: ZundaQuoteCategory, options?: QuoteTriggerOptions) => {
+      if (opts?.onQuote) opts.onQuote(category, options);
+    },
+    [opts],
+  );
 
   const markCalledDiscard = useCallback((who: Player, index: number) => {
     setCalledRiverIndices((c) => {
@@ -580,6 +588,7 @@ export const useMahjong = () => {
 
   const declareRiichi = useCallback(
     (who: Player, riverIndex: number, lockedHand: TileId[]) => {
+      if (remainingJun <= 0) return;
       // 900点以下はリーチできない（= 1000点未満では供託が払えない）
       if ((scores[who] ?? 0) < RIICHI_COST) return;
       let alreadyDeclared = false;
@@ -604,7 +613,7 @@ export const useMahjong = () => {
       };
       handleReaction('reach');
     },
-    [handleReaction, anyCallMade, scores],
+    [handleReaction, anyCallMade, scores, remainingJun],
   );
 
   const cancelIppatsu = useCallback(() => {
@@ -716,8 +725,12 @@ export const useMahjong = () => {
     startRound(idx);
   }, [roundIndex, scores, startRound, roundResult]);
 
-  const checkRyukyoku = useCallback(() => {
-    if (!wallRef.current.length || drawCount >= MAX_JUN * 2) {
+  const checkRyukyoku = useCallback(
+    (afterDiscard: boolean) => {
+      const exhausted = remainingJun <= 0;
+      const wallEmpty = wallRef.current.length <= 0;
+      const shouldEnd = afterDiscard ? exhausted || wallEmpty : wallEmpty;
+      if (!shouldEnd) return false;
       const dealer = round.dealer;
       const dealerHand = dealer === 'player' ? playerHand : opponentHand;
       const dealerDrawn = dealer === 'player' ? playerDrawn : opponentDrawn;
@@ -725,6 +738,8 @@ export const useMahjong = () => {
       const dealerTenpai = isTenpaiWithDrawn(dealerHand, dealerDrawn, dealerMeldCount);
       const playerTenpai = isTenpaiWithDrawn(playerHand, playerDrawn, playerMelds.length);
       const opponentTenpai = isTenpaiWithDrawn(opponentHand, opponentDrawn, opponentMelds.length);
+      if (opponentTenpai) emitQuote('DRAW_TENPAI', { force: true });
+      else emitQuote('DRAW_NOTEN', { force: true });
       endRound({
         winner: null,
         loser: null,
@@ -741,25 +756,27 @@ export const useMahjong = () => {
         tenpai: { player: playerTenpai, opponent: opponentTenpai },
       });
       return true;
-    }
-    return false;
-  }, [
-    drawCount,
-    endRound,
-    honba,
-    kyotaku,
-    round.dealer,
-    playerHand,
-    opponentHand,
-    playerMelds.length,
-    opponentMelds.length,
-    playerDrawn,
-    opponentDrawn,
-  ]);
+    },
+    [
+      endRound,
+      honba,
+      kyotaku,
+      round.dealer,
+      playerHand,
+      opponentHand,
+      playerMelds.length,
+      opponentMelds.length,
+      playerDrawn,
+      opponentDrawn,
+      remainingJun,
+      emitQuote,
+    ],
+  );
 
   const drawTileFor = useCallback(
     (who: Player) => {
-      if (checkRyukyoku()) return null;
+      if (remainingJun <= 0) return null;
+      if (!wallRef.current.length) return null;
       const tile = wallRef.current.shift();
       if (!tile) return null;
       setWall([...wallRef.current]);
@@ -770,7 +787,7 @@ export const useMahjong = () => {
 
       return tile;
     },
-    [checkRyukyoku],
+    [remainingJun],
   );
 
   const drawNormalTileFor = useCallback(
@@ -796,6 +813,7 @@ export const useMahjong = () => {
         setRiichiIntent((i) => ({ ...i, [who]: false }));
         return false;
       }
+      if (remainingJun <= 0) return false;
       // 900点以下はリーチできない
       if ((scores[who] ?? 0) < RIICHI_COST) return false;
       const hand = who === 'player' ? playerHand : opponentHand;
@@ -805,7 +823,7 @@ export const useMahjong = () => {
       setRiichiIntent((i) => ({ ...i, [who]: true }));
       return true;
     },
-    [riichiState, riichiIntent, scores, playerHand, opponentHand, playerDrawn, opponentDrawn, playerMelds, opponentMelds],
+    [riichiState, riichiIntent, scores, playerHand, opponentHand, playerDrawn, opponentDrawn, playerMelds, opponentMelds, remainingJun],
   );
 
   const handleWin = useCallback(
@@ -851,6 +869,23 @@ export const useMahjong = () => {
       const kyotakuPoints = kyotaku * 1000;
       const willRepeat = isDealer; // 親のアガリは連荘
 
+      if (winner === 'opponent') {
+        emitQuote(handPoints >= 8000 ? 'WIN_BIG' : 'WIN_SMALL', { force: true });
+        const isFinal = roundIndex === ROUNDS.length - 1 && !willRepeat;
+        if (isFinal) emitQuote('GAME_WIN', { force: true });
+      }
+      if (winner === 'player') {
+        const category =
+          handPoints <= 3900 ? 'PLAYER_WIN_LOW' : handPoints >= 8000 ? 'PLAYER_WIN_HIGH' : 'PLAYER_WIN_GENERIC';
+        const voiceParams =
+          category === 'PLAYER_WIN_LOW'
+            ? { speedScale: 1.2, pitchScale: 0.1 }
+            : category === 'PLAYER_WIN_HIGH'
+              ? { intonationScale: 0.5, speedScale: 1.1, pitchScale: 0 }
+              : { speedScale: 1.3, intonationScale: 1.5 };
+        emitQuote(category, { force: true, voiceParams });
+      }
+
       endRound({
         winner,
         loser,
@@ -873,8 +908,8 @@ export const useMahjong = () => {
       opponentHand,
       playerMelds,
       opponentMelds,
-	      round.dealer,
-	      round.label,
+      round.dealer,
+      round.label,
       riichiState,
       doubleRiichiState,
       ippatsuEligible,
@@ -883,6 +918,8 @@ export const useMahjong = () => {
       drawCount,
       honba,
       kyotaku,
+      emitQuote,
+      roundIndex,
     ],
   );
 
@@ -942,6 +979,7 @@ export const useMahjong = () => {
 
   const shouldOpponentCall = useCallback(
     (discard: TileId) => {
+      if (remainingJun <= 0) return null;
       // リーチ後は鳴けない（ロン以外）。※暗槓のみ別途処理
       if (riichiState.opponent) return null;
       const discardBase = tileBase(discard);
@@ -991,7 +1029,7 @@ export const useMahjong = () => {
 
       return null;
     },
-    [opponentHand, opponentMelds, round.dealer, round.label, riichiState.opponent],
+    [opponentHand, opponentMelds, round.dealer, round.label, riichiState.opponent, remainingJun],
   );
 
   const canRonOnDiscard = useCallback(
@@ -1066,7 +1104,7 @@ export const useMahjong = () => {
   );
 
   const kanCandidates = useMemo<KanCandidate[]>(() => {
-    if (gameState !== 'player_turn') return [];
+    if (gameState !== 'player_turn' || remainingJun <= 0) return [];
 
     const concealedTiles = playerDrawn ? [...playerHand, playerDrawn] : [...playerHand];
     const concealedCounts = countTiles(concealedTiles);
@@ -1100,11 +1138,12 @@ export const useMahjong = () => {
     }
 
     return sorted;
-  }, [gameState, playerHand, playerDrawn, playerMelds, riichiState.player, canPlayerRiichiAnkan]);
+  }, [gameState, playerHand, playerDrawn, playerMelds, riichiState.player, canPlayerRiichiAnkan, remainingJun]);
 
   const declareKan = useCallback(
     (base: TileId): boolean => {
       if (gameState !== 'player_turn') return false;
+      if (remainingJun <= 0) return false;
       // Prevent double-trigger (e.g., double-click) which can reveal dora twice.
       if (kanActionLockRef.current) return false;
       kanActionLockRef.current = true;
@@ -1194,7 +1233,19 @@ export const useMahjong = () => {
       setTimeout(releaseLock, 250);
       return true;
     },
-    [gameState, kanCandidates, noteCallMade, playerMelds, playerHand, playerDrawn, revealDoraIndicator, drawRinshanTileFor, riichiState.player, canPlayerRiichiAnkan],
+    [
+      gameState,
+      kanCandidates,
+      noteCallMade,
+      playerMelds,
+      playerHand,
+      playerDrawn,
+      revealDoraIndicator,
+      drawRinshanTileFor,
+      riichiState.player,
+      canPlayerRiichiAnkan,
+      remainingJun,
+    ],
   );
 
   const promptCallForPlayer = useCallback(
@@ -1202,9 +1253,9 @@ export const useMahjong = () => {
       if (!tile) return false;
       const base = tileBase(tile);
       const canRon = canRonOnDiscard('player', tile);
-	      if (riichiState.player) {
-	        if (!canRon) return false;
-	        setCallPrompt({
+      if (remainingJun <= 0) {
+        if (!canRon) return false;
+        setCallPrompt({
           from: 'opponent',
           tile,
           canRon,
@@ -1212,15 +1263,27 @@ export const useMahjong = () => {
           kan: false,
           chiOptions: [],
         });
-	        return true;
-	      }
-	      const chiOptions = getChiOptions(playerHand, base);
-	      const pon = canPon(playerHand, base);
-	      const kan = canKanFromDiscard(playerHand, base);
-	      if (chiOptions.length || pon || kan || canRon) {
-	        setCallPrompt({
-	          from: 'opponent',
-	          tile,
+        return true;
+      }
+      if (riichiState.player) {
+        if (!canRon) return false;
+        setCallPrompt({
+          from: 'opponent',
+          tile,
+          canRon,
+          pon: false,
+          kan: false,
+          chiOptions: [],
+        });
+        return true;
+      }
+      const chiOptions = getChiOptions(playerHand, base);
+      const pon = canPon(playerHand, base);
+      const kan = canKanFromDiscard(playerHand, base);
+      if (chiOptions.length || pon || kan || canRon) {
+        setCallPrompt({
+          from: 'opponent',
+          tile,
           canRon,
           pon,
           kan,
@@ -1230,53 +1293,61 @@ export const useMahjong = () => {
       }
       return false;
     },
-    [playerHand, canRonOnDiscard, riichiState.player],
+    [playerHand, canRonOnDiscard, riichiState.player, remainingJun],
   );
 
-	  const resolveCall = useCallback(
-	    (type: MeldType | 'ron' | 'pass', option?: TileId[]) => {
-	      if (!callPrompt) return;
-	      const tile = callPrompt.tile;
-	      setCallPrompt(null);
+  const resolveCall = useCallback(
+    (type: MeldType | 'ron' | 'pass', option?: TileId[]) => {
+      if (!callPrompt) return;
+      const tile = callPrompt.tile;
+      setCallPrompt(null);
 
       if (type === 'ron') {
         handleWin('player', 'ron', tile);
         return;
       }
-	      if (type === 'pass') {
-	        setCurrentTurn('player');
-	        setSkipDraw(false);
-	        setGameState('player_turn');
-	        return;
-	      }
+      if (type === 'pass') {
+        setCurrentTurn('player');
+        setSkipDraw(false);
+        setGameState('player_turn');
+        if (checkRyukyoku(true)) return;
+        return;
+      }
+      if (remainingJun <= 0) {
+        setCurrentTurn('player');
+        setSkipDraw(false);
+        setGameState('player_turn');
+        checkRyukyoku(true);
+        return;
+      }
 
-	      noteCallMade();
-	      // 鳴かれた牌は河に残し、`calledRiverIndices` で薄く表示する
+      noteCallMade();
+      // 鳴かれた牌は河に残し、`calledRiverIndices` で薄く表示する
       setKuikaeForbiddenBase((k) => ({ ...k, player: tileBase(tile) }));
-	
-	      const nextHand = [...playerHand];
-	      let meldToAdd: Meld | null = null;
-	      const base = tileBase(tile);
-	
-	      if (type === 'pon') {
-	        const removed = removeTilesByBase(nextHand, base, 2);
-	        if (removed.length === 2) meldToAdd = { type: 'pon', tiles: [tile, ...removed] };
-	      } else if (type === 'kan') {
-	        const removed = removeTilesByBase(nextHand, base, 3);
-	        if (removed.length === 3) meldToAdd = { type: 'kan', tiles: [tile, ...removed], concealed: false };
-	      } else if (type === 'chi' && option) {
-	        const meldTiles: TileId[] = [];
-	        for (const t of option) {
-	          if (t === base) {
-	            meldTiles.push(tile);
-	            continue;
-	          }
-	          const taken = removeOneTileByBase(nextHand, t);
-	          if (!taken) return;
-	          meldTiles.push(taken);
-	        }
-	        meldToAdd = { type: 'chi', tiles: meldTiles };
-	      }
+
+      const nextHand = [...playerHand];
+      let meldToAdd: Meld | null = null;
+      const base = tileBase(tile);
+
+      if (type === 'pon') {
+        const removed = removeTilesByBase(nextHand, base, 2);
+        if (removed.length === 2) meldToAdd = { type: 'pon', tiles: [tile, ...removed] };
+      } else if (type === 'kan') {
+        const removed = removeTilesByBase(nextHand, base, 3);
+        if (removed.length === 3) meldToAdd = { type: 'kan', tiles: [tile, ...removed], concealed: false };
+      } else if (type === 'chi' && option) {
+        const meldTiles: TileId[] = [];
+        for (const t of option) {
+          if (t === base) {
+            meldTiles.push(tile);
+            continue;
+          }
+          const taken = removeOneTileByBase(nextHand, t);
+          if (!taken) return;
+          meldTiles.push(taken);
+        }
+        meldToAdd = { type: 'chi', tiles: meldTiles };
+      }
 
       if (meldToAdd) setPlayerMelds((m) => [...m, meldToAdd]);
       setPlayerHand(nextHand);
@@ -1295,9 +1366,20 @@ export const useMahjong = () => {
         drawRinshanTileFor('player'); // 嶺上
         setSkipDraw(false);
       }
-	    },
-	    [callPrompt, handleWin, noteCallMade, drawRinshanTileFor, revealDoraIndicator, playerHand, opponentRiver, markCalledDiscard],
-	  );
+    },
+    [
+      callPrompt,
+      handleWin,
+      noteCallMade,
+      drawRinshanTileFor,
+      revealDoraIndicator,
+      playerHand,
+      opponentRiver,
+      markCalledDiscard,
+      checkRyukyoku,
+      remainingJun,
+    ],
+  );
 
   const discardTile = useCallback(
     (tileIndex: number, fromDrawn: boolean) => {
@@ -1422,7 +1504,7 @@ export const useMahjong = () => {
       }
 
       // 通常進行
-      if (checkRyukyoku()) return;
+      if (checkRyukyoku(true)) return;
       setSkipDraw(false);
       setCurrentTurn('opponent');
       setGameState('opponent_turn');
@@ -1615,6 +1697,13 @@ export const useMahjong = () => {
 
       const best = scored[0]!;
       const discardIndex = best.discardIndex;
+      const isPlayerRiichi = riichiState.player;
+      const isSafeToPlayer = playerRiverBases.has(best.base);
+      const isDoraPush = doraTiles.includes(best.base);
+      const shantenImproved = shantenCurrent > best.shanten;
+      if (isPlayerRiichi && foldMode) emitQuote('DEFENSE');
+      if (isPlayerRiichi && isSafeToPlayer) emitQuote('SAFE_TILE');
+      else if (isPlayerRiichi && (isDoraPush || shantenImproved)) emitQuote('OFFENSE');
 
       const discard = fullHand.splice(discardIndex, 1)[0];
       rinshanEligibleRef.current = { ...rinshanEligibleRef.current, opponent: false };
@@ -1654,6 +1743,7 @@ export const useMahjong = () => {
       remainingJun,
       scores.opponent,
       doraTiles,
+      emitQuote,
     ],
   );
 
@@ -1666,6 +1756,10 @@ export const useMahjong = () => {
 
     // ツモチェック
     if (!skipDraw) {
+      if (!earlyQuoteDoneRef.current && drawCount <= 10) {
+        emitQuote('EARLY_GAME');
+        earlyQuoteDoneRef.current = true;
+      }
       if (!drawnTile) {
         drawnTile = drawNormalTileFor('opponent');
       }
@@ -1676,7 +1770,7 @@ export const useMahjong = () => {
       }
 
       // リーチ後の暗槓（AI）
-      if (riichiState.opponent) {
+      if (riichiState.opponent && remainingJun > 0) {
         const base = tileBase(drawnTile);
         const counts = countTiles(opponentHand);
         if ((counts[base] ?? 0) === 3 && canOpponentRiichiAnkan(base)) {
@@ -1706,7 +1800,7 @@ export const useMahjong = () => {
       const shouldFoldAgainstRiichi = reachThreat && shantenForMode >= 2 && doraCountForMode <= 1;
       // リーチ判定
       if (!opponentMelds.length && !riichiState.opponent && !shouldFoldAgainstRiichi) {
-        const remaining = Math.max(0, MAX_JUN * 2 - drawCount);
+        const remaining = remainingJun;
         if (
           remaining > 0 &&
           (scores.opponent ?? 0) >= RIICHI_COST &&
@@ -1736,7 +1830,7 @@ export const useMahjong = () => {
     }
     if (promptCallForPlayer(discardedTile)) return;
 
-    if (checkRyukyoku()) return;
+    if (checkRyukyoku(true)) return;
     setCurrentTurn('player');
     setGameState('player_turn');
     drawNormalTileFor('player');
@@ -1748,6 +1842,7 @@ export const useMahjong = () => {
     opponentMelds,
     handleWin,
     riichiState.opponent,
+    riichiState.player,
     scores.opponent,
     drawCount,
     opponentDiscard,
@@ -1762,6 +1857,8 @@ export const useMahjong = () => {
     revealDoraIndicator,
     drawRinshanTileFor,
     doraTiles,
+    remainingJun,
+    emitQuote,
   ]);
 
   useEffect(() => {

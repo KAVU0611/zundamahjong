@@ -1,0 +1,46 @@
+{
+  "DEFENSE": [
+    "DEFENSE_0.wav",
+    "DEFENSE_1.wav"
+  ],
+  "OFFENSE": [
+    "OFFENSE_0.wav",
+    "OFFENSE_1.wav"
+  ],
+  "SAFE_TILE": [
+    "SAFE_TILE_0.wav",
+    "SAFE_TILE_1.wav"
+  ],
+  "EARLY_GAME": [
+    "EARLY_GAME_0.wav",
+    "EARLY_GAME_1.wav"
+  ],
+  "DRAW_TENPAI": [
+    "DRAW_TENPAI_0.wav"
+  ],
+  "DRAW_NOTEN": [
+    "DRAW_NOTEN_0.wav"
+  ],
+  "WIN_SMALL": [
+    "WIN_SMALL_0.wav"
+  ],
+  "WIN_BIG": [
+    "WIN_BIG_0.wav"
+  ],
+  "GAME_WIN": [
+    "GAME_WIN_0.wav"
+  ],
+  "PLAYER_WIN_LOW": [
+    "PLAYER_WIN_LOW_0.wav",
+    "PLAYER_WIN_LOW_1.wav"
+  ],
+  "PLAYER_WIN_HIGH": [
+    "PLAYER_WIN_HIGH_0.wav",
+    "PLAYER_WIN_HIGH_1.wav",
+    "PLAYER_WIN_HIGH_2.wav"
+  ],
+  "PLAYER_WIN_GENERIC": [
+    "PLAYER_WIN_GENERIC_0.wav",
+    "PLAYER_WIN_GENERIC_1.wav"
+  ]
+}

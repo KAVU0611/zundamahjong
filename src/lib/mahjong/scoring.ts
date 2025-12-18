@@ -135,16 +135,6 @@ const removeOneTile = (tiles: TileId[], target: TileId): TileId[] => {
   return out;
 };
 
-const tilesFromSets = (sets: SetShape[]) => {
-  const out: TileId[] = [];
-  for (const s of sets) {
-    if (s.kind === 'sequence') out.push(...s.tiles);
-    if (s.kind === 'triplet') out.push(s.tile, s.tile, s.tile);
-    if (s.kind === 'quad') out.push(s.tile, s.tile, s.tile, s.tile);
-  }
-  return out;
-};
-
 const suitsInTiles = (tiles: TileId[]) => {
   const suits = new Set<string>();
   for (const t of tiles) {
@@ -338,6 +328,7 @@ const calcFu = (opts: {
   roundWind: TileId;
   seatWind: TileId;
   shape: HandShape;
+  winTile: TileId;
 }): number => {
   if (opts.shape.isSevenPairs) return 25;
 
@@ -358,15 +349,17 @@ const calcFu = (opts: {
   fu += opts.shape.waitFu;
 
   // Set fu
+  const winTileBase = baseTile(opts.winTile);
   for (const s of opts.shape.sets) {
     if (s.kind === 'sequence') continue;
     const tile = s.tile;
     const yao = isTerminalOrHonor(tile);
+    const openForFu = s.open || (opts.method === 'ron' && tile === winTileBase);
     if (s.kind === 'triplet') {
-      if (s.open) fu += yao ? 4 : 2;
+      if (openForFu) fu += yao ? 4 : 2;
       else fu += yao ? 8 : 4;
     } else if (s.kind === 'quad') {
-      if (s.open) fu += yao ? 16 : 8;
+      if (openForFu) fu += yao ? 16 : 8;
       else fu += yao ? 32 : 16;
     }
   }
@@ -705,6 +698,7 @@ export const calculateScore = (opts: {
       roundWind: opts.roundWind,
       seatWind: opts.seatWind,
       shape: shape.isSevenPairs ? shape : { ...shape, sets },
+      winTile: opts.winTile,
     });
 
     const limit = detectLimitName(han, fu);
