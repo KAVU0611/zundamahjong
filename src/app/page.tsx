@@ -391,6 +391,18 @@ export default function MahjongPage() {
     return (last?.tileId ?? last?.base) ?? null;
   }, [roundResult, opponentDrawn, playerRiver]);
 
+  const showOpponentHandOnRyukyoku = React.useMemo(
+    () => roundResult?.reason === 'ryuukyoku' && !!roundResult.tenpai?.opponent,
+    [roundResult],
+  );
+
+  const opponentHandOnRyukyoku = React.useMemo(() => {
+    if (!showOpponentHandOnRyukyoku) return null;
+    const tiles: TileId[] = [...opponentHand];
+    if (opponentDrawn) tiles.push(opponentDrawn);
+    return tiles;
+  }, [showOpponentHandOnRyukyoku, opponentHand, opponentDrawn]);
+
   return (
     <main className="flex flex-col items-center min-h-[100dvh] bg-green-800 text-white p-2 sm:p-3 font-sans overflow-x-hidden">
       <div className="w-full max-w-5xl flex flex-col gap-3">
@@ -707,7 +719,37 @@ export default function MahjongPage() {
               <p className="text-2xl font-bold mb-3 text-center">{resultDetails.title}</p>
 
               {roundResult.reason === 'ryuukyoku' ? (
-                <p className="text-sm text-green-100 text-center">{resultDetails.body}</p>
+                <div className="space-y-3">
+                  <p className="text-sm text-green-100 text-center">{resultDetails.body}</p>
+                  {showOpponentHandOnRyukyoku && opponentHandOnRyukyoku && (
+                    <div>
+                      <p className="text-sm font-bold text-green-50 mb-1">ずんだもんの手牌（テンパイ）</p>
+                      <div className="bg-black/20 rounded px-3 py-2">
+                        <div className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
+                          {opponentHandOnRyukyoku.map((tile, i) => (
+                            <Tile
+                              key={`${tile}-${i}`}
+                              tileId={tile}
+                              className="w-12 h-[72px] sm:w-14 sm:h-[84px] shadow-none cursor-default transform-none"
+                            />
+                          ))}
+                        </div>
+                        {opponentMelds.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-xs text-green-50/80 mb-1">鳴き</p>
+                            <div className="flex flex-wrap gap-2">
+                              {opponentMelds.map((m, idx) => (
+                                <div key={`${m.type}-${idx}`} className="bg-white/10 rounded px-2 py-1">
+                                  <MeldView tiles={m.tiles} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <>
                   <div className="mb-3">

@@ -386,6 +386,7 @@ export const useMahjong = () => {
         method: WinMethod | null;
         willRepeat: boolean;
         applied: boolean;
+        tenpai: { player: boolean; opponent: boolean } | null;
       }
   >(null);
   const [reaction, setReaction] = useState<Reaction>('none');
@@ -642,6 +643,7 @@ export const useMahjong = () => {
       score: ScoreResult | null;
       method: WinMethod | null;
       willRepeat: boolean;
+      tenpai: { player: boolean; opponent: boolean } | null;
     }) => {
       setRoundResult({ ...opts, applied: opts.winner ? false : true });
       const isLastRound = roundIndex === ROUNDS.length - 1;
@@ -721,6 +723,8 @@ export const useMahjong = () => {
       const dealerDrawn = dealer === 'player' ? playerDrawn : opponentDrawn;
       const dealerMeldCount = dealer === 'player' ? playerMelds.length : opponentMelds.length;
       const dealerTenpai = isTenpaiWithDrawn(dealerHand, dealerDrawn, dealerMeldCount);
+      const playerTenpai = isTenpaiWithDrawn(playerHand, playerDrawn, playerMelds.length);
+      const opponentTenpai = isTenpaiWithDrawn(opponentHand, opponentDrawn, opponentMelds.length);
       endRound({
         winner: null,
         loser: null,
@@ -734,6 +738,7 @@ export const useMahjong = () => {
         score: null,
         method: null,
         willRepeat: dealerTenpai,
+        tenpai: { player: playerTenpai, opponent: opponentTenpai },
       });
       return true;
     }
@@ -859,6 +864,7 @@ export const useMahjong = () => {
         score,
         method: reason,
         willRepeat,
+        tenpai: null,
       });
     },
     [
