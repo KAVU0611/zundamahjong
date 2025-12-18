@@ -444,6 +444,7 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
     playerRiver,
     opponentRiver,
   ]);
+  const remainingJun = useMemo(() => Math.max(0, MAX_JUN * 2 - drawCount), [drawCount]);
   const canRiichi = useMemo(
     () => ({
       player: remainingJun > 0 && canDeclareRiichiFromHand(playerHand, playerDrawn, playerMelds, riichiState.player),
@@ -562,8 +563,6 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
     setKyotaku(0);
     startRound(0);
   }, [startRound]);
-
-  const remainingJun = useMemo(() => Math.max(0, MAX_JUN * 2 - drawCount), [drawCount]);
 
   const handleReaction = useCallback((type: Reaction) => setReaction(type), []);
   const emitQuote = useCallback(

@@ -5,7 +5,8 @@ import Image from 'next/image';
 import { useMahjong, TileId, GameState } from '../hooks/useMahjong';
 import { useSounds, VoiceKey, VoiceTuning } from '../hooks/useSounds';
 import { TILE_ASSET_PATHS, TILE_ID_TO_IMAGE_MAP } from './tileAssets';
-import { pickZundaQuote, ZundamonQuoteAudio, type ZundaQuoteCategory } from '../lib/zundaQuotes';
+import { pickZundaQuote, type ZundaQuoteCategory } from '../lib/zundaQuotes';
+import { getZundaVoice } from '../utils/zundaVoice';
 
 const parseTileIdForDisplay = (tileId: TileId): { base: TileId; isRed: boolean } => {
   const dashParts = tileId.split('-');
@@ -137,23 +138,10 @@ const ZUNDA_VOICE_KEY_TO_SOUND: Record<ZundaVoiceKey, `zunda_${string}`> = {
   player_win: 'zunda_player_win',
 };
 
-const Zundamon: React.FC<{ mode: keyof typeof ZUNDAMON_STATES; text: string; quoteText?: string; quoteKey?: number }> = ({
-  mode,
-  text,
-  quoteText,
-  quoteKey,
-}) => {
+const Zundamon: React.FC<{ mode: keyof typeof ZUNDAMON_STATES; text: string }> = ({ mode, text }) => {
   const state = ZUNDAMON_STATES[mode] || ZUNDAMON_STATES.waiting;
   return (
     <div className="flex flex-col items-center justify-center relative">
-      {quoteText && (
-        <div
-          key={quoteKey}
-          className="absolute -top-3 left-full ml-2 bg-white text-gray-900 rounded-lg shadow-lg px-3 py-2 text-sm max-w-[240px] z-10 bubble-pop"
-        >
-          {quoteText}
-        </div>
-      )}
       <div className="w-28 h-28 sm:w-36 sm:h-36 relative">
         <Image src={`/zunda/${state.img}`} alt="Zundamon" fill unoptimized className="object-contain" />
       </div>
@@ -259,46 +247,42 @@ const PlayerHand: React.FC<PlayerHandProps> = ({
 };
 
 export default function MahjongPage() {
-  const { playSe, playVoice, playVoiceDynamic, playVoiceSource } = useSounds();
+  const { playSe, playVoice, playVoiceDynamic, playVoiceSource, stopVoice } = useSounds();
   const [zundaFullText, setZundaFullText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
   const [zundaDisplayedText, setZundaDisplayedText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
   const [zundaTextSource, setZundaTextSource] = React.useState<'state' | 'voice'>('state');
   const zundaVoiceResetTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-  const [quoteText, setQuoteText] = React.useState('');
-  const [quoteKey, setQuoteKey] = React.useState(0);
-  const quoteHideTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const zundamonModeRef = React.useRef<keyof typeof ZUNDAMON_STATES>('waiting');
+  const quoteActiveRef = React.useRef(false);
 
   const triggerQuote = React.useCallback(
     (category: ZundaQuoteCategory, force: boolean, voiceParams?: VoiceTuning) => {
       if (!force && Math.random() >= 0.3) return;
-      const text = pickZundaQuote(category);
+      const voiceLine = getZundaVoice(category);
+      const text = voiceLine?.text ?? pickZundaQuote(category);
       if (!text) return;
       if (zundaVoiceResetTimerRef.current) clearTimeout(zundaVoiceResetTimerRef.current);
-      if (quoteHideTimerRef.current) clearTimeout(quoteHideTimerRef.current);
+      const baseText = ZUNDAMON_STATES[zundamonModeRef.current]?.text ?? ZUNDAMON_STATES.waiting.text;
+      stopVoice();
       setZundaTextSource('voice');
       setZundaFullText(text);
       setZundaDisplayedText('');
-      setQuoteText(text);
-      setQuoteKey(Date.now());
-      quoteHideTimerRef.current = setTimeout(() => setQuoteText(''), 4500);
-      const baseText = ZUNDAMON_STATES[zundamonModeRef.current]?.text ?? ZUNDAMON_STATES.waiting.text;
+      quoteActiveRef.current = true;
       zundaVoiceResetTimerRef.current = setTimeout(() => {
         setZundaTextSource('state');
         setZundaFullText(baseText);
-        setZundaDisplayedText('');
+        setZundaDisplayedText(baseText);
+        quoteActiveRef.current = false;
       }, 5000);
-      const assets = ZundamonQuoteAudio[category];
-      if (assets && assets.length) {
-        const asset = assets.length === 1 ? assets[0]! : assets[Math.floor(Math.random() * assets.length)]!;
-        playVoiceSource({ type: 'asset', url: asset });
+      if (voiceLine?.file) {
+        playVoiceSource({ type: 'asset', url: voiceLine.file });
       } else if (voiceParams) {
         playVoiceDynamic(text, voiceParams);
       } else {
         playVoiceDynamic(text);
       }
     },
-    [playVoiceDynamic, playVoiceSource],
+    [playVoiceDynamic, playVoiceSource, stopVoice],
   );
 
   const handleQuote = React.useCallback(
@@ -394,6 +378,7 @@ export default function MahjongPage() {
 
   const playZundaVoice = React.useCallback(
     (key: ZundaVoiceKey) => {
+      if (quoteActiveRef.current) return; // Quote voice/text takes priority.
       const def = ZUNDA_VOICE_MAP[key];
       if (!def) return;
 
@@ -424,9 +409,7 @@ export default function MahjongPage() {
       if (zundaVoiceResetTimerRef.current) {
         clearTimeout(zundaVoiceResetTimerRef.current);
       }
-      if (quoteHideTimerRef.current) {
-        clearTimeout(quoteHideTimerRef.current);
-      }
+      quoteActiveRef.current = false;
     };
   }, []);
 
@@ -481,19 +464,20 @@ export default function MahjongPage() {
       return;
     }
     const key = `${roundResult.reason}-${roundResult.winner ?? 'none'}-${roundResult.loser ?? 'none'}`;
-    if (prevRoundResultKeyRef.current === key) return;
+    const isNewResult = prevRoundResultKeyRef.current !== key;
     prevRoundResultKeyRef.current = key;
 
-    if (roundResult.reason === 'tsumo' || roundResult.reason === 'ron' || roundResult.reason === 'ryuukyoku') {
-      playSe('win');
-      if (roundResult.winner === 'opponent') {
-        playZundaVoice(roundResult.reason === 'tsumo' ? 'tsumo' : 'ron');
-      }
-      if (roundResult.winner === 'player') {
-        playZundaVoice('player_win');
-      }
+    if (!isNewResult) return;
+    if (roundResult.reason !== 'tsumo' && roundResult.reason !== 'ron' && roundResult.reason !== 'ryuukyoku') return;
+
+    playSe('win');
+    if (roundResult.winner === 'opponent') {
+      playZundaVoice(roundResult.reason === 'tsumo' ? 'tsumo' : 'ron');
     }
-  }, [roundResult, playSe, playZundaVoice]);
+    if (roundResult.winner === 'player' && gameState === 'match_end') {
+      playZundaVoice('player_win');
+    }
+  }, [roundResult, gameState, playSe, playZundaVoice]);
 
   React.useEffect(() => {
     if (gameState !== 'player_turn') {
@@ -682,7 +666,7 @@ export default function MahjongPage() {
               </div>
 
               <div className="order-1 sm:order-2 flex flex-col items-center gap-1">
-                <Zundamon mode={zundamonMode} text={zundaDisplayedText} quoteText={quoteText} quoteKey={quoteKey} />
+                <Zundamon mode={zundamonMode} text={zundaDisplayedText} />
               </div>
 
               <div className="order-3 text-center bg-green-950/50 rounded-lg p-2 sm:p-3 border border-green-700/40 h-full flex flex-col justify-center">
@@ -910,7 +894,7 @@ export default function MahjongPage() {
                   {showOpponentHandOnRyukyoku && opponentHandOnRyukyoku && (
                     <div>
                       <p className="text-sm font-bold text-green-50 mb-1">ずんだもんの手牌（テンパイ）</p>
-                      <div className="bg-black/20 rounded px-3 py-2">
+                      <div className="bg-black/20 rounded px-3 py-2 overflow-x-auto">
                         <div className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
                           {opponentHandOnRyukyoku.map((tile, i) => (
                             <Tile
@@ -975,16 +959,10 @@ export default function MahjongPage() {
                     </div>
                   </div>
 
-                  {roundResult.winner === 'player' && (
-                    <div className="mt-3 bg-black/20 rounded px-3 py-2 text-sm text-green-100 whitespace-pre-line">
-                      {LOSE_QUOTE_LONG}
-                    </div>
-                  )}
-
                   {roundResult.winner === 'opponent' && (
                     <div className="mt-3">
                       <p className="text-sm font-bold text-green-50 mb-1">ずんだもんの手牌</p>
-                      <div className="bg-black/20 rounded px-3 py-2">
+                      <div className="bg-black/20 rounded px-3 py-2 overflow-x-auto">
                         <div className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
                           {opponentHand.map((tile, i) => (
                             <Tile
