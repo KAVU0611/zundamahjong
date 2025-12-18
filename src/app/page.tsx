@@ -202,6 +202,8 @@ export default function MahjongPage() {
   const prevRoundResultKeyRef = React.useRef<string | null>(null);
   const slowWarnedRef = React.useRef(false);
   const tileAssetsPreloadedRef = React.useRef(false);
+  const playerHandScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const prevPlayerTileCountRef = React.useRef(0);
 
   React.useEffect(() => {
     if (tileAssetsPreloadedRef.current) return;
@@ -253,6 +255,17 @@ export default function MahjongPage() {
     }
     prevOpponentRiverCountRef.current = opponentRiver.length;
   }, [opponentRiver, playSe]);
+
+  React.useEffect(() => {
+    const currentCount = playerHand.length + (playerDrawn ? 1 : 0);
+    const prev = prevPlayerTileCountRef.current;
+    // ツモって枚数が増えたら右端（ツモ牌）までスクロール
+    if (currentCount > prev && playerHandScrollRef.current) {
+      const node = playerHandScrollRef.current;
+      node.scrollTo({ left: node.scrollWidth, behavior: 'smooth' });
+    }
+    prevPlayerTileCountRef.current = currentCount;
+  }, [playerHand.length, playerDrawn]);
 
   React.useEffect(() => {
     if (!roundResult) {
@@ -440,7 +453,7 @@ export default function MahjongPage() {
 
           <section className="flex flex-col gap-2">
             <div className="w-full flex flex-col items-stretch gap-2 sm:gap-3 bg-green-950/40 rounded-lg px-2 sm:px-3 py-2 border border-green-700/40">
-              <div className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
+              <div ref={playerHandScrollRef} className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
                 {playerHand.map((tile, i) => (
                   <Tile
                     key={tile}

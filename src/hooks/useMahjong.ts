@@ -278,6 +278,15 @@ const baseNumber = (base: TileId) => parseInt(base.slice(1), 10);
 const isTerminalBase = (base: TileId) => !isHonorBase(base) && (baseNumber(base) === 1 || baseNumber(base) === 9);
 const isSimpleBase = (base: TileId) => !isHonorBase(base) && baseNumber(base) >= 2 && baseNumber(base) <= 8;
 const isTerminalOrHonorBase = (base: TileId) => isHonorBase(base) || isTerminalBase(base);
+const countDoraTiles = (tiles: TileId[], doraList: TileId[]) => {
+  let total = 0;
+  for (const t of tiles) {
+    const base = tileBase(t);
+    if (doraList.includes(base)) total++;
+    if (isRedTile(t)) total++;
+  }
+  return total;
+};
 
 const countPairsInHand = (hand: TileId[]) => {
   const counts = countTiles(hand);
@@ -1436,7 +1445,7 @@ export const useMahjong = () => {
     ],
   );
 
-const opponentDiscard = useCallback(
+  const opponentDiscard = useCallback(
     (drawnTile?: TileId | null, intentToDeclareRiichi?: boolean): TileId | null => {
       const tile = drawnTile ?? opponentDrawn;
       // リーチ中はツモ牌をツモ切りする
@@ -1452,9 +1461,14 @@ const opponentDiscard = useCallback(
       const forbidBase = kuikaeForbiddenBase.opponent;
       const meldCount = opponentMelds.length;
       const remainingCounts = countTiles(wallRef.current);
+      const reachThreat = riichiState.player;
 
       const fullHandBases = fullHand.map(tileBase);
       const countsFull = counts34FromBases(fullHandBases);
+      const shantenCurrent = calculateShantenFromCounts(countsFull, meldCount);
+      const doraCount = countDoraTiles(fullHand, doraTiles);
+      const pushMode = !reachThreat || shantenCurrent === 0 || doraCount >= 3;
+      const foldMode = reachThreat && !pushMode && shantenCurrent >= 2 && doraCount <= 1;
 
       const candidatesByBase = new Map<string, number[]>();
       for (let i = 0; i < fullHand.length; i++) {
@@ -1469,6 +1483,32 @@ const opponentDiscard = useCallback(
       const chooseIndexForBase = (indices: number[]) => {
         const nonRed = indices.find((i) => !isRedTile(fullHand[i]!));
         return nonRed ?? indices[0]!;
+      };
+
+      const playerRiverBases = new Set(playerRiver.map((r) => r.base));
+      const honorDiscardCounts = new Map<string, number>();
+      for (const r of [...playerRiver, ...opponentRiver]) {
+        if (!isHonorBase(r.base)) continue;
+        honorDiscardCounts.set(r.base, (honorDiscardCounts.get(r.base) ?? 0) + 1);
+      }
+      const sujiSafe = new Set<string>();
+      for (const r of playerRiver) {
+        const b = r.base;
+        if (isHonorBase(b)) continue;
+        const num = parseInt(b.slice(1), 10);
+        const suit = b[0];
+        const low = num - 3;
+        const high = num + 3;
+        if (low >= 1) sujiSafe.add(`${suit}${low}`);
+        if (high <= 9) sujiSafe.add(`${suit}${high}`);
+      }
+
+      const safetyCategory = (base: string) => {
+        if (playerRiverBases.has(base)) return 1; // 現物
+        if (isHonorBase(base) && (honorDiscardCounts.get(base) ?? 0) > 0) return 2; // オタ風/オタ場の字牌
+        if (sujiSafe.has(base)) return 3; // スジ
+        if (isTerminalBase(base) || isHonorBase(base)) return 4; // 端・字牌
+        return 5;
       };
 
       type EvalResult = {
@@ -1534,16 +1574,40 @@ const opponentDiscard = useCallback(
 
       if (!evals.length) return null;
 
-      evals.sort((a, b) => {
-        if (a.shanten !== b.shanten) return a.shanten - b.shanten;
-        if (a.ukeire !== b.ukeire) return b.ukeire - a.ukeire;
-        const aRed = isRedTile(fullHand[a.discardIndex]!);
-        const bRed = isRedTile(fullHand[b.discardIndex]!);
-        if (aRed !== bRed) return aRed ? 1 : -1;
-        return a.base.localeCompare(b.base);
+      type ScoredEval = EvalResult & { safety: number; isDora: boolean; isRed: boolean };
+      const scored: ScoredEval[] = evals.map((e) => {
+        const tileAtIndex = fullHand[e.discardIndex]!;
+        const base = tileBase(tileAtIndex);
+        return {
+          ...e,
+          safety: safetyCategory(base),
+          isDora: doraTiles.includes(base) || isRedTile(tileAtIndex),
+          isRed: isRedTile(tileAtIndex),
+        };
       });
 
-      const best = evals[0]!;
+      if (!scored.length) return null;
+
+      if (foldMode) {
+        scored.sort((a, b) => {
+          if (a.safety !== b.safety) return a.safety - b.safety;
+          if (a.isDora !== b.isDora) return a.isDora ? 1 : -1;
+          if (a.shanten !== b.shanten) return a.shanten - b.shanten;
+          if (a.ukeire !== b.ukeire) return b.ukeire - a.ukeire;
+          if (a.isRed !== b.isRed) return a.isRed ? 1 : -1;
+          return a.base.localeCompare(b.base);
+        });
+      } else {
+        scored.sort((a, b) => {
+          if (a.shanten !== b.shanten) return a.shanten - b.shanten;
+          if (a.ukeire !== b.ukeire) return b.ukeire - a.ukeire;
+          if (a.isDora !== b.isDora) return a.isDora ? 1 : -1;
+          if (a.isRed !== b.isRed) return a.isRed ? 1 : -1;
+          return a.base.localeCompare(b.base);
+        });
+      }
+
+      const best = scored[0]!;
       const discardIndex = best.discardIndex;
 
       const discard = fullHand.splice(discardIndex, 1)[0];
@@ -1573,14 +1637,17 @@ const opponentDiscard = useCallback(
       opponentDrawn,
       opponentHand,
       opponentRiver,
+      playerRiver,
       riichiIntent.opponent,
       riichiState.opponent,
+      riichiState.player,
       declareRiichi,
       kuikaeForbiddenBase.opponent,
       makeRiverEntry,
       opponentMelds.length,
       remainingJun,
       scores.opponent,
+      doraTiles,
     ],
   );
 
@@ -1626,8 +1693,13 @@ const opponentDiscard = useCallback(
           }
         }
       }
+      const reachThreat = riichiState.player;
+      const fullHandForMode = drawnTile ? [...opponentHand, drawnTile] : [...opponentHand];
+      const shantenForMode = calculateShantenFromCounts(counts34FromBases(fullHandForMode.map(tileBase)), opponentMelds.length);
+      const doraCountForMode = countDoraTiles(fullHandForMode, doraTiles);
+      const shouldFoldAgainstRiichi = reachThreat && shantenForMode >= 2 && doraCountForMode <= 1;
       // リーチ判定
-      if (!opponentMelds.length && !riichiState.opponent) {
+      if (!opponentMelds.length && !riichiState.opponent && !shouldFoldAgainstRiichi) {
         const remaining = Math.max(0, MAX_JUN * 2 - drawCount);
         if (
           remaining > 0 &&
@@ -1683,6 +1755,7 @@ const opponentDiscard = useCallback(
     noteCallMade,
     revealDoraIndicator,
     drawRinshanTileFor,
+    doraTiles,
   ]);
 
   useEffect(() => {
