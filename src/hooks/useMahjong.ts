@@ -305,7 +305,12 @@ const isFuriten = (hand: TileId[], river: RiverEntry[], meldCount: number) => {
 
 const getRoundWind = (label: string): TileId => (label.startsWith('東') ? 'z1' : 'z2');
 
-type QuoteTriggerOptions = { force?: boolean; voiceParams?: { speedScale?: number; pitchScale?: number; intonationScale?: number } };
+type QuoteTriggerOptions = {
+  force?: boolean;
+  // When true, the quote/voice text should remain on screen until the user advances.
+  persistText?: boolean;
+  voiceParams?: { speedScale?: number; pitchScale?: number; intonationScale?: number };
+};
 
 export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, options?: QuoteTriggerOptions) => void }) => {
   const [gameState, setGameState] = useState<GameState>('waiting');
@@ -737,8 +742,8 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
       const dealerTenpai = isTenpaiWithDrawn(dealerHand, dealerDrawn, dealerMeldCount);
       const playerTenpai = isTenpaiWithDrawn(playerHand, playerDrawn, playerMelds.length);
       const opponentTenpai = isTenpaiWithDrawn(opponentHand, opponentDrawn, opponentMelds.length);
-      if (opponentTenpai) emitQuote('DRAW_TENPAI', { force: true });
-      else emitQuote('DRAW_NOTEN', { force: true });
+      if (opponentTenpai) emitQuote('DRAW_TENPAI', { force: true, persistText: true });
+      else emitQuote('DRAW_NOTEN', { force: true, persistText: true });
       endRound({
         winner: null,
         loser: null,
@@ -869,9 +874,9 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
       const willRepeat = isDealer; // 親のアガリは連荘
 
       if (winner === 'opponent') {
-        emitQuote(handPoints >= 8000 ? 'WIN_BIG' : 'WIN_SMALL', { force: true });
+        emitQuote(handPoints >= 8000 ? 'WIN_BIG' : 'WIN_SMALL', { force: true, persistText: true });
         const isFinal = roundIndex === ROUNDS.length - 1 && !willRepeat;
-        if (isFinal) emitQuote('GAME_WIN', { force: true });
+        if (isFinal) emitQuote('GAME_WIN', { force: true, persistText: true });
       }
       if (winner === 'player') {
         const category =
@@ -882,7 +887,7 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
             : category === 'PLAYER_WIN_HIGH'
               ? { intonationScale: 0.5, speedScale: 1.1, pitchScale: 0 }
               : { speedScale: 1.3, intonationScale: 1.5 };
-        emitQuote(category, { force: true, voiceParams });
+        emitQuote(category, { force: true, voiceParams, persistText: true });
       }
 
       endRound({

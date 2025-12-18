@@ -138,6 +138,17 @@ const ZUNDA_VOICE_KEY_TO_SOUND: Record<ZundaVoiceKey, `zunda_${string}`> = {
   player_win: 'zunda_player_win',
 };
 
+const END_QUOTE_CATEGORIES: Set<ZundaQuoteCategory> = new Set([
+  'DRAW_TENPAI',
+  'DRAW_NOTEN',
+  'WIN_SMALL',
+  'WIN_BIG',
+  'GAME_WIN',
+  'PLAYER_WIN_LOW',
+  'PLAYER_WIN_HIGH',
+  'PLAYER_WIN_GENERIC',
+]);
+
 const Zundamon: React.FC<{ mode: keyof typeof ZUNDAMON_STATES; text: string }> = ({ mode, text }) => {
   const state = ZUNDAMON_STATES[mode] || ZUNDAMON_STATES.waiting;
   return (
@@ -254,30 +265,36 @@ export default function MahjongPage() {
   const zundaVoiceResetTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const zundamonModeRef = React.useRef<keyof typeof ZUNDAMON_STATES>('waiting');
   const quoteActiveRef = React.useRef(false);
+  const persistentVoiceRef = React.useRef(false);
 
   const triggerQuote = React.useCallback(
-    (category: ZundaQuoteCategory, force: boolean, voiceParams?: VoiceTuning) => {
+    (category: ZundaQuoteCategory, options?: { force?: boolean; voiceParams?: VoiceTuning; persistText?: boolean }) => {
+      const force = options?.force ?? false;
       if (!force && Math.random() >= 0.3) return;
       const voiceLine = getZundaVoice(category);
       const text = voiceLine?.text ?? pickZundaQuote(category);
       if (!text) return;
       if (zundaVoiceResetTimerRef.current) clearTimeout(zundaVoiceResetTimerRef.current);
       const baseText = ZUNDAMON_STATES[zundamonModeRef.current]?.text ?? ZUNDAMON_STATES.waiting.text;
+      const shouldPersist = Boolean(options?.persistText || END_QUOTE_CATEGORIES.has(category));
       stopVoice();
       setZundaTextSource('voice');
       setZundaFullText(text);
       setZundaDisplayedText('');
       quoteActiveRef.current = true;
-      zundaVoiceResetTimerRef.current = setTimeout(() => {
-        setZundaTextSource('state');
-        setZundaFullText(baseText);
-        setZundaDisplayedText(baseText);
-        quoteActiveRef.current = false;
-      }, 5000);
+      persistentVoiceRef.current = shouldPersist;
+      if (!shouldPersist) {
+        zundaVoiceResetTimerRef.current = setTimeout(() => {
+          setZundaTextSource('state');
+          setZundaFullText(baseText);
+          setZundaDisplayedText(baseText);
+          quoteActiveRef.current = false;
+        }, 5000);
+      }
       if (voiceLine?.file) {
         playVoiceSource({ type: 'asset', url: voiceLine.file });
-      } else if (voiceParams) {
-        playVoiceDynamic(text, voiceParams);
+      } else if (options?.voiceParams) {
+        playVoiceDynamic(text, options.voiceParams);
       } else {
         playVoiceDynamic(text);
       }
@@ -286,8 +303,8 @@ export default function MahjongPage() {
   );
 
   const handleQuote = React.useCallback(
-    (category: ZundaQuoteCategory, options?: { force?: boolean; voiceParams?: VoiceTuning }) => {
-      triggerQuote(category, options?.force ?? false, options?.voiceParams);
+    (category: ZundaQuoteCategory, options?: { force?: boolean; voiceParams?: VoiceTuning; persistText?: boolean }) => {
+      triggerQuote(category, { ...options, persistText: options?.persistText });
     },
     [triggerQuote],
   );
@@ -377,7 +394,7 @@ export default function MahjongPage() {
   }, [zundaFullText]);
 
   const playZundaVoice = React.useCallback(
-    (key: ZundaVoiceKey) => {
+    (key: ZundaVoiceKey, options?: { persistText?: boolean }) => {
       if (quoteActiveRef.current) return; // Quote voice/text takes priority.
       const def = ZUNDA_VOICE_MAP[key];
       if (!def) return;
@@ -394,15 +411,33 @@ export default function MahjongPage() {
       playVoice(voiceKey);
 
       const baseText = ZUNDAMON_STATES[zundamonMode]?.text ?? ZUNDAMON_STATES.waiting.text;
-      const duration = Math.max(def.text.length * 50 + 1200, 1500);
-      zundaVoiceResetTimerRef.current = setTimeout(() => {
-        setZundaTextSource('state');
-        setZundaFullText(baseText);
-        setZundaDisplayedText('');
-      }, duration);
+      const shouldPersist = Boolean(options?.persistText);
+      persistentVoiceRef.current = shouldPersist;
+      if (!shouldPersist) {
+        const duration = Math.max(def.text.length * 50 + 1200, 1500);
+        zundaVoiceResetTimerRef.current = setTimeout(() => {
+          setZundaTextSource('state');
+          setZundaFullText(baseText);
+          setZundaDisplayedText('');
+        }, duration);
+      }
     },
     [playVoice, zundamonMode],
   );
+
+  const resetZundaText = React.useCallback(() => {
+    if (zundaVoiceResetTimerRef.current) {
+      clearTimeout(zundaVoiceResetTimerRef.current);
+      zundaVoiceResetTimerRef.current = null;
+    }
+    stopVoice();
+    quoteActiveRef.current = false;
+    persistentVoiceRef.current = false;
+    const baseText = ZUNDAMON_STATES[zundamonModeRef.current]?.text ?? ZUNDAMON_STATES.waiting.text;
+    setZundaTextSource('state');
+    setZundaFullText(baseText);
+    setZundaDisplayedText(baseText);
+  }, [stopVoice]);
 
   React.useEffect(() => {
     return () => {
@@ -410,6 +445,7 @@ export default function MahjongPage() {
         clearTimeout(zundaVoiceResetTimerRef.current);
       }
       quoteActiveRef.current = false;
+      persistentVoiceRef.current = false;
     };
   }, []);
 
@@ -472,10 +508,10 @@ export default function MahjongPage() {
 
     playSe('win');
     if (roundResult.winner === 'opponent') {
-      playZundaVoice(roundResult.reason === 'tsumo' ? 'tsumo' : 'ron');
+      playZundaVoice(roundResult.reason === 'tsumo' ? 'tsumo' : 'ron', { persistText: true });
     }
     if (roundResult.winner === 'player' && gameState === 'match_end') {
-      playZundaVoice('player_win');
+      playZundaVoice('player_win', { persistText: true });
     }
   }, [roundResult, gameState, playSe, playZundaVoice]);
 
@@ -614,6 +650,7 @@ export default function MahjongPage() {
           <button
             onClick={() => {
               playSe('click');
+              resetZundaText();
               playZundaVoice('start');
               startGame();
             }}
@@ -1016,25 +1053,28 @@ export default function MahjongPage() {
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2 justify-center mb-2">
-            <button
-              onClick={() => {
-                playSe('click');
-                handleShareToX();
-              }}
-              disabled={!shareText}
-              className={`px-5 py-2 rounded-lg font-bold border border-white/30 bg-black/30 hover:bg-black/20 ${
-                !shareText ? 'opacity-60 cursor-not-allowed' : ''
-              }`}
-            >
-              X に投稿
-            </button>
-          </div>
+          {roundResult && (
+            <div className="flex flex-wrap gap-2 justify-center mb-2">
+              <button
+                onClick={() => {
+                  playSe('click');
+                  handleShareToX();
+                }}
+                disabled={!shareText}
+                className={`px-5 py-2 rounded-lg font-bold border border-white/30 bg-black/30 hover:bg-black/20 ${
+                  !shareText ? 'opacity-60 cursor-not-allowed' : ''
+                }`}
+              >
+                X に投稿
+              </button>
+            </div>
+          )}
 
           {gameState !== 'match_end' && (
             <button
               onClick={() => {
                 playSe('click');
+                resetZundaText();
                 nextRound();
               }}
               className="px-6 py-3 bg-blue-500 hover:bg-blue-600 rounded-lg text-xl font-bold shadow-lg"
@@ -1047,6 +1087,7 @@ export default function MahjongPage() {
             <button
               onClick={() => {
                 playSe('click');
+                resetZundaText();
                 nextRound();
               }}
               className="px-6 py-3 bg-blue-500 hover:bg-blue-600 rounded-lg text-xl font-bold shadow-lg"
@@ -1063,6 +1104,7 @@ export default function MahjongPage() {
               <button
                 onClick={() => {
                   playSe('click');
+                  resetZundaText();
                   playZundaVoice('start');
                   startGame();
                 }}
