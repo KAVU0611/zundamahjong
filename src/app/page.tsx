@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Image from 'next/image';
-import { useMahjong, TileId } from '../hooks/useMahjong';
+import { useMahjong, TileId, GameState } from '../hooks/useMahjong';
 import { useSounds } from '../hooks/useSounds';
 import { TILE_ASSET_PATHS, TILE_ID_TO_IMAGE_MAP } from './tileAssets';
 
@@ -148,6 +148,63 @@ const MeldZone: React.FC<{ title: string; melds: MeldData[]; className?: string 
   );
 };
 
+type PlayerHandProps = {
+  hand: TileId[];
+  drawnTile?: TileId | null;
+  gameState: GameState;
+  isRiichi: boolean;
+  onDiscardFromHand: (index: number) => void;
+  onDiscardDrawn: () => void;
+};
+
+const PlayerHand: React.FC<PlayerHandProps> = ({
+  hand,
+  drawnTile,
+  gameState,
+  isRiichi,
+  onDiscardFromHand,
+  onDiscardDrawn,
+}) => {
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const prevTileCountRef = React.useRef(0);
+  const isPlayerTurn = gameState === 'player_turn';
+
+  React.useEffect(() => {
+    const container = scrollRef.current;
+    const currentCount = hand.length + (drawnTile ? 1 : 0);
+    const prevCount = prevTileCountRef.current;
+
+    if (container && currentCount > prevCount) {
+      container.scrollTo({ left: container.scrollWidth, behavior: 'smooth' });
+    }
+
+    prevTileCountRef.current = currentCount;
+  }, [hand, drawnTile]);
+
+  return (
+    <div ref={scrollRef} className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
+      {hand.map((tile, i) => (
+        <Tile
+          key={tile}
+          tileId={tile}
+          onClick={isPlayerTurn && !isRiichi ? () => onDiscardFromHand(i) : undefined}
+          className={!isPlayerTurn || isRiichi ? 'opacity-60 cursor-not-allowed sm:hover:translate-y-0 transform-none' : ''}
+        />
+      ))}
+      {drawnTile && (
+        <div className="ml-2 sm:ml-3">
+          <Tile
+            key={drawnTile}
+            tileId={drawnTile}
+            onClick={isPlayerTurn ? onDiscardDrawn : undefined}
+            className={!isPlayerTurn ? 'opacity-60 cursor-not-allowed sm:hover:translate-y-0 transform-none' : ''}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function MahjongPage() {
   const {
     gameState,
@@ -202,8 +259,6 @@ export default function MahjongPage() {
   const prevRoundResultKeyRef = React.useRef<string | null>(null);
   const slowWarnedRef = React.useRef(false);
   const tileAssetsPreloadedRef = React.useRef(false);
-  const playerHandScrollRef = React.useRef<HTMLDivElement | null>(null);
-  const prevPlayerTileCountRef = React.useRef(0);
 
   React.useEffect(() => {
     if (tileAssetsPreloadedRef.current) return;
@@ -255,17 +310,6 @@ export default function MahjongPage() {
     }
     prevOpponentRiverCountRef.current = opponentRiver.length;
   }, [opponentRiver, playSe]);
-
-  React.useEffect(() => {
-    const currentCount = playerHand.length + (playerDrawn ? 1 : 0);
-    const prev = prevPlayerTileCountRef.current;
-    // ツモって枚数が増えたら右端（ツモ牌）までスクロール
-    if (currentCount > prev && playerHandScrollRef.current) {
-      const node = playerHandScrollRef.current;
-      node.scrollTo({ left: node.scrollWidth, behavior: 'smooth' });
-    }
-    prevPlayerTileCountRef.current = currentCount;
-  }, [playerHand.length, playerDrawn]);
 
   React.useEffect(() => {
     if (!roundResult) {
@@ -323,6 +367,19 @@ export default function MahjongPage() {
       body: `${winnerLabel}: +${points}点 / ${loserLabel}: -${points}点 ${kyotakuText}`,
     };
   }, [roundResult]);
+
+  const handleDiscardFromHand = React.useCallback(
+    (index: number) => {
+      playSe('discard');
+      discardTile(index, false);
+    },
+    [discardTile, playSe],
+  );
+
+  const handleDiscardDrawn = React.useCallback(() => {
+    playSe('discard');
+    discardTile(0, true);
+  }, [discardTile, playSe]);
 
   const opponentWinTileForReveal = React.useMemo<TileId | null>(() => {
     if (!roundResult) return null;
@@ -453,42 +510,14 @@ export default function MahjongPage() {
 
           <section className="flex flex-col gap-2">
             <div className="w-full flex flex-col items-stretch gap-2 sm:gap-3 bg-green-950/40 rounded-lg px-2 sm:px-3 py-2 border border-green-700/40">
-              <div ref={playerHandScrollRef} className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
-                {playerHand.map((tile, i) => (
-                  <Tile
-                    key={tile}
-                    tileId={tile}
-                    onClick={
-                      gameState === 'player_turn' && !riichiState.player
-                        ? () => {
-                            playSe('discard');
-                            discardTile(i, false);
-                          }
-                        : undefined
-                    }
-                    className={
-                      gameState !== 'player_turn' || riichiState.player ? 'opacity-60 cursor-not-allowed sm:hover:translate-y-0 transform-none' : ''
-                    }
-                  />
-                ))}
-                {playerDrawn && (
-                  <div className="ml-2 sm:ml-3">
-                    <Tile
-                      key={playerDrawn}
-                      tileId={playerDrawn}
-                      onClick={
-                        gameState === 'player_turn'
-                          ? () => {
-                              playSe('discard');
-                              discardTile(0, true);
-                            }
-                          : undefined
-                      }
-                      className={gameState !== 'player_turn' ? 'opacity-60 cursor-not-allowed sm:hover:translate-y-0 transform-none' : ''}
-                    />
-                  </div>
-                )}
-              </div>
+              <PlayerHand
+                hand={playerHand}
+                drawnTile={playerDrawn}
+                gameState={gameState}
+                isRiichi={riichiState.player}
+                onDiscardFromHand={handleDiscardFromHand}
+                onDiscardDrawn={handleDiscardDrawn}
+              />
               <MeldZone title="あなたの鳴き牌" melds={playerMelds} />
             </div>
             <div className="flex flex-wrap gap-2 justify-center">
