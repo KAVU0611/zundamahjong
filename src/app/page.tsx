@@ -89,7 +89,7 @@ const Tile: React.FC<TileProps> = ({ tileId, isBack = false, onClick, className 
   );
 };
 
-type MeldData = { type: 'pon' | 'chi' | 'kan'; tiles: TileId[] };
+type MeldData = { type: 'pon' | 'chi' | 'kan'; tiles: TileId[]; concealed?: boolean };
 
 const ZUNDAMON_STATES = {
   waiting: { img: 'normal.png', text: '麻雀するのだ！' },
@@ -144,11 +144,17 @@ const Zundamon: React.FC<{ mode: keyof typeof ZUNDAMON_STATES; text: string }> =
   );
 };
 
-const MeldView: React.FC<{ tiles: TileId[] }> = ({ tiles }) => {
+const MeldView: React.FC<{ meld: MeldData }> = ({ meld }) => {
+  const isAnkan = meld.type === 'kan' && meld.concealed;
   return (
     <div className="flex gap-1">
-      {tiles.map((t) => (
-        <Tile key={t} tileId={t} className="cursor-default transform-none" />
+      {meld.tiles.map((t, idx) => (
+        <Tile
+          key={`${t}-${idx}`}
+          tileId={t}
+          isBack={isAnkan && (idx === 0 || idx === 3)}
+          className="cursor-default transform-none"
+        />
       ))}
     </div>
   );
@@ -164,7 +170,7 @@ const MeldZone: React.FC<{ title: string; melds: MeldData[]; className?: string 
         {melds.length ? (
           melds.map((m, idx) => (
             <div key={`${m.type}-${idx}`} className="bg-white/70 px-1 py-0.5 rounded shadow-sm">
-              <MeldView tiles={m.tiles} />
+              <MeldView meld={m} />
             </div>
           ))
         ) : (
@@ -828,7 +834,7 @@ export default function MahjongPage() {
                             <div className="flex flex-wrap gap-2">
                               {opponentMelds.map((m, idx) => (
                                 <div key={`${m.type}-${idx}`} className="bg-white/10 rounded px-2 py-1">
-                                  <MeldView tiles={m.tiles} />
+                                  <MeldView meld={m} />
                                 </div>
                               ))}
                             </div>
@@ -908,7 +914,7 @@ export default function MahjongPage() {
                             <div className="flex flex-wrap gap-2">
                               {opponentMelds.map((m, idx) => (
                                 <div key={`${m.type}-${idx}`} className="bg-white/10 rounded px-2 py-1">
-                                  <MeldView tiles={m.tiles} />
+                                  <MeldView meld={m} />
                                 </div>
                               ))}
                             </div>
