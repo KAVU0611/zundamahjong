@@ -362,6 +362,7 @@ export default function MahjongPage() {
   const prevPlayerRiverCountRef = React.useRef(0);
   const prevOpponentRiverCountRef = React.useRef(0);
   const prevRoundResultKeyRef = React.useRef<string | null>(null);
+  const playerWinVoicePlayedRef = React.useRef(false);
   const slowWarnedRef = React.useRef(false);
   const tileAssetsPreloadedRef = React.useRef(false);
 
@@ -497,21 +498,40 @@ export default function MahjongPage() {
   React.useEffect(() => {
     if (!roundResult) {
       prevRoundResultKeyRef.current = null;
+      playerWinVoicePlayedRef.current = false;
       return;
     }
     const key = `${roundResult.reason}-${roundResult.winner ?? 'none'}-${roundResult.loser ?? 'none'}`;
     const isNewResult = prevRoundResultKeyRef.current !== key;
-    prevRoundResultKeyRef.current = key;
-
-    if (!isNewResult) return;
-    if (roundResult.reason !== 'tsumo' && roundResult.reason !== 'ron' && roundResult.reason !== 'ryuukyoku') return;
-
-    playSe('win');
-    if (roundResult.winner === 'opponent') {
-      playZundaVoice(roundResult.reason === 'tsumo' ? 'tsumo' : 'ron', { persistText: true });
+    if (isNewResult) {
+      prevRoundResultKeyRef.current = key;
+      playerWinVoicePlayedRef.current = false;
     }
-    if (roundResult.winner === 'player' && gameState === 'match_end') {
+
+    const isRoundResolution =
+      roundResult.reason === 'tsumo' || roundResult.reason === 'ron' || roundResult.reason === 'ryuukyoku';
+
+    if (isNewResult && isRoundResolution) {
+      playSe('win');
+      if (roundResult.winner === 'opponent') {
+        playZundaVoice(roundResult.reason === 'tsumo' ? 'tsumo' : 'ron', { persistText: true });
+      }
+    }
+
+    if (
+      isRoundResolution &&
+      roundResult.winner === 'player' &&
+      gameState === 'match_end' &&
+      !playerWinVoicePlayedRef.current
+    ) {
+      if (zundaVoiceResetTimerRef.current) {
+        clearTimeout(zundaVoiceResetTimerRef.current);
+        zundaVoiceResetTimerRef.current = null;
+      }
+      quoteActiveRef.current = false;
+      persistentVoiceRef.current = false;
       playZundaVoice('player_win', { persistText: true });
+      playerWinVoicePlayedRef.current = true;
     }
   }, [roundResult, gameState, playSe, playZundaVoice]);
 
@@ -555,24 +575,19 @@ export default function MahjongPage() {
     };
   }, [roundResult]);
 
-  const shareText = React.useMemo(() => {
-    if (!roundResult) return '';
-    const roundLabel = round?.label ?? '対局';
-    if (roundResult.reason === 'ryuukyoku') {
-      return `ずんだ麻雀 ${roundLabel}は流局。スコア: あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点`;
-    }
-    const method = roundResult.reason === 'tsumo' ? 'ツモ' : 'ロン';
-    const winnerLabel = roundResult.winner === 'player' ? 'あなた' : 'ずんだもん';
-    const pointsText = roundResult.points ? ` (${roundResult.points}点)` : '';
-    return `ずんだ麻雀 ${roundLabel}で${winnerLabel}の${method}${pointsText}！ スコア: あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点`;
-  }, [roundResult, round, scores]);
+  const finalShareText = React.useMemo(() => {
+    if (gameState !== 'match_end' || !roundResult?.applied) return '';
+    const winnerLabel =
+      scores.player === scores.opponent ? '引き分け' : scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！';
+    return `ずんだ麻雀 終局：${winnerLabel} 最終スコア あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点`;
+  }, [gameState, roundResult?.applied, scores]);
 
   const handleShareToX = React.useCallback(() => {
-    if (!shareText) return;
+    if (!finalShareText) return;
     if (typeof window === 'undefined') return;
-    const intentUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+    const intentUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(finalShareText)}`;
     window.open(intentUrl, '_blank', 'noopener,noreferrer');
-  }, [shareText]);
+  }, [finalShareText]);
 
   const handleDiscardFromHand = React.useCallback(
     (index: number) => {
@@ -1053,23 +1068,6 @@ export default function MahjongPage() {
             </div>
           )}
 
-          {roundResult && (
-            <div className="flex flex-wrap gap-2 justify-center mb-2">
-              <button
-                onClick={() => {
-                  playSe('click');
-                  handleShareToX();
-                }}
-                disabled={!shareText}
-                className={`px-5 py-2 rounded-lg font-bold border border-white/30 bg-black/30 hover:bg-black/20 ${
-                  !shareText ? 'opacity-60 cursor-not-allowed' : ''
-                }`}
-              >
-                X に投稿
-              </button>
-            </div>
-          )}
-
           {gameState !== 'match_end' && (
             <button
               onClick={() => {
@@ -1101,6 +1099,20 @@ export default function MahjongPage() {
               <p className="text-2xl mb-2">
                 {scores.player === scores.opponent ? '引き分け' : scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！'}
               </p>
+              <div className="flex flex-wrap gap-2 justify-center mb-3">
+                <button
+                  onClick={() => {
+                    playSe('click');
+                    handleShareToX();
+                  }}
+                  disabled={!finalShareText}
+                  className={`px-5 py-2 rounded-lg font-bold border border-white/30 bg-black/30 hover:bg-black/20 ${
+                    !finalShareText ? 'opacity-60 cursor-not-allowed' : ''
+                  }`}
+                >
+                  X に投稿
+                </button>
+              </div>
               <button
                 onClick={() => {
                   playSe('click');

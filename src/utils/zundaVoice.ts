@@ -17,12 +17,15 @@ const QUOTE_VOICES: Record<ZundaQuoteCategory, ZundaVoiceLine[]> = {
   ],
   SAFE_TILE: [
     { file: '/sounds/voice/quotes/SAFE_TILE_0.wav', text: 'はいはい、安牌。君のリーチ、全然プレッシャーないんだけどー。' },
-    { file: '/sounds/voice/quotes/SAFE_TILE_1.wav', text: 'とりあえず現物っと。ふん、必死な顔してツモってるけど、まさかまだ上がれないのー？' },
+    {
+      file: '/sounds/voice/quotes/SAFE_TILE_1.wav',
+      text: 'はいはい、安全策安全策。そんなにボクのロンが怖いのだ？ ビビり散らかしてるのが手に取るようにわかるのだｗ',
+    },
   ],
   DRAW_TENPAI: [
     {
       file: '/sounds/voice/quotes/DRAW_TENPAI_0.wav',
-      text: '危なかったねー。あと一巡あったら君、飛んでたよ？僕の手、倍満確定だったんだから。命拾いしてよかったね。雑魚運だけはいいのだ。',
+      text: '危なかったねー。シミュレーションでは次のツモでボクが上がってたのだ。君の寿命が少し伸びただけなのだ。',
     },
   ],
   DRAW_NOTEN: [
@@ -47,14 +50,14 @@ const QUOTE_VOICES: Record<ZundaQuoteCategory, ZundaVoiceLine[]> = {
     },
   ],
   PLAYER_WIN_LOW: [
-    { file: '/sounds/voice/quotes/PLAYER_WIN_LOW_0.wav', text: 'その1000点のために僕の手を蹴ったの？コスパ悪すぎなのだ。' },
-    { file: '/sounds/voice/quotes/PLAYER_WIN_LOW_1.wav', text: '必死に鳴いてそれ？駄菓子代にもならないのだｗ' },
+    { file: '/sounds/voice/quotes/PLAYER_WIN_LOW_0.wav', text: 'えっ、それだけ？ その点数のためにボクの手を蹴ったの？ コスパ悪すぎなのだ。' },
+    { file: '/sounds/voice/quotes/PLAYER_WIN_LOW_1.wav', text: '必死にアガってそれ？ 駄菓子代にもならないのだｗ' },
   ],
   PLAYER_WIN_HIGH: [
     { file: '/sounds/voice/quotes/PLAYER_WIN_HIGH_0.wav', text: 'はいはい、よかったねー。すごいすごいー。もー、これで満足なのだー？' },
     {
       file: '/sounds/voice/quotes/PLAYER_WIN_HIGH_1.wav',
-      text: 'へー、満貫？おめでとうなのだ。まさか、たかがゲームの点数で人生勝った気になってないよねー？',
+      text: 'へー、高打点？ おめでとうなのだ。……まさか、たかがゲームの点数で人生勝った気になってないよね？',
     },
     {
       file: '/sounds/voice/quotes/PLAYER_WIN_HIGH_2.wav',
@@ -74,4 +77,3 @@ export const getZundaVoice = (category: ZundaQuoteCategory): ZundaVoiceLine | nu
   const idx = Math.floor(Math.random() * lines.length);
   return lines[idx] || lines[0]!;
 };
-
