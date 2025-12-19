@@ -576,7 +576,7 @@ export default function MahjongPage() {
   const finalShareText = React.useMemo(() => {
     if (!isFinalWinnerDecided) return '';
     const winnerLabel = scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！';
-    return `ずんだ麻雀 終局：${winnerLabel} 最終スコア あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点\nhttps://zundamahjong.com\n(作成者: 島根のAIエンジニア @miharaeditor)`;
+    return `ずんだもん煽り麻雀 終局：${winnerLabel} 最終スコア あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点\nhttps://zundamahjong.com\n(作成者: 島根のAIエンジニア @miharaeditor)`;
   }, [isFinalWinnerDecided, scores]);
 
   const handleShareToX = React.useCallback(() => {
