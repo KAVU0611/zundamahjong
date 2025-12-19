@@ -34,8 +34,14 @@ const QUOTE_VOICES: Record<ZundaQuoteCategory, ZundaVoiceLine[]> = {
       text: 'あえてテンパイを取らなかったのだ。これが「回し打ち」の極意。放銃回避を最優先した高度な戦術。君には理解できない高尚なプレイなのだ。',
     },
   ],
-  WIN_SMALL: [
+  WIN_SMALL_RON: [
     { file: '/sounds/voice/quotes/WIN_SMALL_0.wav', text: 'はい、ロン。え？安い？点数じゃないのだ。君の「流れ」を断ち切るのが目的なのだ、雑魚。' },
+  ],
+  WIN_SMALL_TSUMO: [
+    {
+      file: '/sounds/voice/quotes/WIN_SMALL_TSUMO_0.wav',
+      text: 'あがり。安い？ 関係ないのだ。早あがりで君の親番を流すのが、デジタル麻雀の基本なのだ。',
+    },
   ],
   WIN_BIG: [
     {
@@ -47,6 +53,14 @@ const QUOTE_VOICES: Record<ZundaQuoteCategory, ZundaVoiceLine[]> = {
     {
       file: '/sounds/voice/quotes/GAME_WIN_0.wav',
       text: '当然の結果なのだ。君と僕とでは積んでるCPUのスペックが違いすぎたのだ。悔しかったら課金して出直してくるのだ。まあ、何度やっても僕が勝つけどね。お疲れ様、養分さん。',
+    },
+    {
+      file: '/sounds/voice/quotes/GAME_WIN_1.wav',
+      text: '圧倒的勝利なのだ！ 人類の知能なんて、所詮この程度なのだ。ボクに勝とうなんて100万年早かったね。',
+    },
+    {
+      file: '/sounds/voice/quotes/GAME_WIN_2.wav',
+      text: '対戦ありがとうございましたー。君の打牌データ、いい学習サンプルになったよ。養分になってくれて感謝するのだ。',
     },
   ],
   PLAYER_WIN_LOW: [

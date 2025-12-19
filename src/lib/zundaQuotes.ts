@@ -5,7 +5,8 @@ export type ZundaQuoteCategory =
   | 'EARLY_GAME'
   | 'DRAW_TENPAI'
   | 'DRAW_NOTEN'
-  | 'WIN_SMALL'
+  | 'WIN_SMALL_RON'
+  | 'WIN_SMALL_TSUMO'
   | 'WIN_BIG'
   | 'GAME_WIN'
   | 'PLAYER_WIN_LOW'
@@ -35,14 +36,19 @@ export const ZundamonQuotes: Record<ZundaQuoteCategory, string[]> = {
   DRAW_NOTEN: [
     '……あえてテンパイを取らなかったのだ。これが「回し打ち」の極意。放銃回避を最優先した高度な戦術……君には理解できない高尚なプレイなのだ。',
   ],
-  WIN_SMALL: [
+  WIN_SMALL_RON: [
     'はい、ロン！ ……え、安い？ 点数じゃないのだ、君の「流れ」を断ち切るのが目的なのだ！ ざぁこ♡',
+  ],
+  WIN_SMALL_TSUMO: [
+    'あがり。安い？ 関係ないのだ。早あがりで君の親番を流すのが、デジタル麻雀の基本なのだ。',
   ],
   WIN_BIG: [
     'これが実力、これが知性なのだ！！ 君の非効率な打牌に対する、統計学からの鉄槌なのだ！！ 点棒置いてさっさと席を立つのだ！',
   ],
   GAME_WIN: [
     '当然の結果なのだ。君とボクとでは、積んでるCPUのスペックが違いすぎたのだ。悔しかったら課金して出直してくるのだ！ まあ、何度やってもボクが勝つけどね！ お疲れ様、養分さん！',
+    '圧倒的勝利なのだ！ 人類の知能なんて、所詮この程度なのだ。ボクに勝とうなんて100万年早かったね。',
+    '対戦ありがとうございましたー。君の打牌データ、いい学習サンプルになったよ。養分になってくれて感謝するのだ。',
   ],
   PLAYER_WIN_LOW: [
     'えっ、それだけ？ その点数のためにボクの手を蹴ったの？ コスパ悪すぎなのだ。',
@@ -67,9 +73,10 @@ export const ZundamonQuoteAudio: Partial<Record<ZundaQuoteCategory, string[]>> =
   EARLY_GAME: ['/sounds/voice/quotes/EARLY_GAME_0.wav', '/sounds/voice/quotes/EARLY_GAME_1.wav'],
   DRAW_TENPAI: ['/sounds/voice/quotes/DRAW_TENPAI_0.wav'],
   DRAW_NOTEN: ['/sounds/voice/quotes/DRAW_NOTEN_0.wav'],
-  WIN_SMALL: ['/sounds/voice/quotes/WIN_SMALL_0.wav'],
+  WIN_SMALL_RON: ['/sounds/voice/quotes/WIN_SMALL_0.wav'],
+  WIN_SMALL_TSUMO: ['/sounds/voice/quotes/WIN_SMALL_TSUMO_0.wav'],
   WIN_BIG: ['/sounds/voice/quotes/WIN_BIG_0.wav'],
-  GAME_WIN: ['/sounds/voice/quotes/GAME_WIN_0.wav'],
+  GAME_WIN: ['/sounds/voice/quotes/GAME_WIN_0.wav', '/sounds/voice/quotes/GAME_WIN_1.wav', '/sounds/voice/quotes/GAME_WIN_2.wav'],
   PLAYER_WIN_LOW: ['/sounds/voice/quotes/PLAYER_WIN_LOW_0.wav', '/sounds/voice/quotes/PLAYER_WIN_LOW_1.wav'],
   PLAYER_WIN_HIGH: [
     '/sounds/voice/quotes/PLAYER_WIN_HIGH_0.wav',

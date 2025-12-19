@@ -903,7 +903,13 @@ export const useMahjong = (opts?: {
 
       if (!opts?.suppressRoundEndQuotes) {
         if (winner === 'opponent') {
-          emitQuote(handPoints >= 8000 ? 'WIN_BIG' : 'WIN_SMALL', { force: true, persistText: true });
+          if (handPoints >= 8000) {
+            emitQuote('WIN_BIG', { force: true, persistText: true });
+          } else if (handPoints < 3900) {
+            emitQuote(reason === 'tsumo' ? 'WIN_SMALL_TSUMO' : 'WIN_SMALL_RON', { force: true, persistText: true });
+          } else {
+            emitQuote('WIN_SMALL_RON', { force: true, persistText: true });
+          }
           const isFinal = roundIndex === ROUNDS.length - 1 && !willRepeat;
           if (isFinal) emitQuote('GAME_WIN', { force: true, persistText: true });
         }

@@ -141,7 +141,8 @@ const ZUNDA_VOICE_KEY_TO_SOUND: Record<ZundaVoiceKey, VoiceKey> = {
 const END_QUOTE_CATEGORIES: Set<ZundaQuoteCategory> = new Set([
   'DRAW_TENPAI',
   'DRAW_NOTEN',
-  'WIN_SMALL',
+  'WIN_SMALL_RON',
+  'WIN_SMALL_TSUMO',
   'WIN_BIG',
   'GAME_WIN',
   'PLAYER_WIN_LOW',
@@ -262,7 +263,6 @@ export default function MahjongPage() {
   const [zundaFullText, setZundaFullText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
   const [zundaDisplayedText, setZundaDisplayedText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
   const [zundaTextSource, setZundaTextSource] = React.useState<'state' | 'voice'>('state');
-  const [finalNarrationText, setFinalNarrationText] = React.useState<string>('');
   const zundaVoiceResetTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const zundamonModeRef = React.useRef<keyof typeof ZUNDAMON_STATES>('waiting');
   const quoteActiveRef = React.useRef(false);
@@ -500,7 +500,6 @@ export default function MahjongPage() {
       prevRoundResultKeyRef.current = null;
       playerWinVoicePlayedRef.current = false;
       prevFinalSummaryRef.current = false;
-      setFinalNarrationText('');
       return;
     }
     const key = `${roundResult.reason}-${roundResult.winner ?? 'none'}-${roundResult.loser ?? 'none'}`;
@@ -508,7 +507,6 @@ export default function MahjongPage() {
     if (isNewResult) {
       prevRoundResultKeyRef.current = key;
       playerWinVoicePlayedRef.current = false;
-      setFinalNarrationText('');
     }
 
     const isRoundResolution =
@@ -528,12 +526,11 @@ export default function MahjongPage() {
       quoteActiveRef.current = false;
       persistentVoiceRef.current = false;
       stopVoice();
-      setFinalNarrationText(LOSE_QUOTE_LONG);
-      playVoice(ZUNDA_VOICE_KEY_TO_SOUND.player_win);
+      playZundaVoice('player_win', { persistText: true });
       playerWinVoicePlayedRef.current = true;
     }
     prevFinalSummaryRef.current = isFinalSummary;
-  }, [roundResult, gameState, playSe, playVoice, stopVoice, scores.player, scores.opponent]);
+  }, [roundResult, gameState, playSe, playZundaVoice, stopVoice, scores.player, scores.opponent]);
 
   React.useEffect(() => {
     if (gameState !== 'player_turn') {
@@ -576,7 +573,6 @@ export default function MahjongPage() {
   }, [roundResult]);
 
   const isFinalWinnerDecided = gameState === 'match_end' && roundResult?.applied && scores.player !== scores.opponent;
-  const isPlayerFinalWinner = isFinalWinnerDecided && scores.player > scores.opponent;
   const finalShareText = React.useMemo(() => {
     if (!isFinalWinnerDecided) return '';
     const winnerLabel = scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！';
@@ -728,7 +724,7 @@ export default function MahjongPage() {
                 <p className="text-xs sm:text-sm text-green-100 mt-1">ドラ: {doraTiles.join(', ') || 'なし'}</p>
               </div>
 
-              <div className="order-1 sm:order-2 flex flex-col items-center gap-1">
+              <div className="order-1 sm:order-2 flex flex-col items-center gap-1 relative z-40">
                 <Zundamon mode={zundamonMode} text={zundaDisplayedText} />
               </div>
 
@@ -1152,13 +1148,6 @@ export default function MahjongPage() {
               <p className="text-2xl mb-2">
                 {scores.player === scores.opponent ? '引き分け' : scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！'}
               </p>
-              {isPlayerFinalWinner && finalNarrationText && (
-                <div className="mx-auto mb-4 w-full max-w-2xl bg-black/20 border border-white/20 rounded-lg p-4 text-left">
-                  <p className="text-sm sm:text-base leading-relaxed text-green-50 whitespace-pre-line max-h-[40vh] overflow-y-auto pr-1">
-                    {finalNarrationText}
-                  </p>
-                </div>
-              )}
               {isFinalWinnerDecided && (
                 <div className="flex flex-wrap gap-2 justify-center mb-3">
                   <button
