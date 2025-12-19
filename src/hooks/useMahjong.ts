@@ -659,8 +659,7 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
       tenpai: { player: boolean; opponent: boolean } | null;
     }) => {
       setRoundResult({ ...opts, applied: opts.winner ? false : true });
-      const isLastRound = roundIndex === ROUNDS.length - 1;
-      setGameState(isLastRound && !opts.willRepeat ? 'match_end' : 'round_end');
+      setGameState('round_end');
       if (opts.reason === 'ryuukyoku') handleReaction('ryuukyoku');
       if (opts.reason === 'ron') handleReaction('ron');
       if (opts.reason === 'tsumo') handleReaction('tsumo');
@@ -672,6 +671,17 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
     // Result overlay "Next": apply point transfer first.
     if (!roundResult) return;
     const tobi = (s: { player: number; opponent: number }) => s.player <= TOBI_END_THRESHOLD || s.opponent <= TOBI_END_THRESHOLD;
+    const isAllLast = roundIndex === ROUNDS.length - 1;
+    const endOnAllLastWin = (s: { player: number; opponent: number }, winner: Player) => {
+      if (!isAllLast) return false;
+      return winner === 'player' ? s.player > s.opponent : s.opponent > s.player;
+    };
+    const endOnAllLastTenpai = (s: { player: number; opponent: number }, tenpai?: { player: boolean; opponent: boolean } | null) => {
+      if (!isAllLast || !tenpai) return false;
+      if (tenpai.player && s.player > s.opponent) return true;
+      if (tenpai.opponent && s.opponent > s.player) return true;
+      return false;
+    };
 
     if (roundResult?.winner && roundResult.loser && !roundResult.applied) {
       const delta = roundResult.points;
@@ -694,6 +704,10 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
           setGameState('match_end');
           return;
         }
+        if (endOnAllLastWin(nextScores, winner)) {
+          setGameState('match_end');
+          return;
+        }
       } else {
         setRoundResult((r) => (r ? { ...r, applied: true } : r));
       }
@@ -702,12 +716,19 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
     const willRepeat = roundResult.willRepeat;
     if (roundResult.reason === 'ryuukyoku') {
       // 流局は親がテンパイなら連荘、ノーテンなら親流れ。どちらも本場は加算。
+      if (endOnAllLastTenpai(scores, roundResult.tenpai)) {
+        setGameState('match_end');
+        return;
+      }
       setHonba((h) => h + 1);
       if (willRepeat) {
         startRound(roundIndex);
         return;
       }
-      if (roundIndex === ROUNDS.length - 1) return;
+      if (isAllLast) {
+        startRound(roundIndex);
+        return;
+      }
       const idx = roundIndex + 1;
       setRoundIndex(idx);
       startRound(idx);
@@ -723,7 +744,10 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
 
     // 親が流れたら本場リセットして次局へ
     setHonba(0);
-    if (roundIndex === ROUNDS.length - 1) return;
+    if (isAllLast) {
+      startRound(roundIndex);
+      return;
+    }
     const idx = roundIndex + 1;
     setRoundIndex(idx);
     startRound(idx);

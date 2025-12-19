@@ -365,6 +365,8 @@ export default function MahjongPage() {
   const playerWinVoicePlayedRef = React.useRef(false);
   const slowWarnedRef = React.useRef(false);
   const tileAssetsPreloadedRef = React.useRef(false);
+  const opponentResultHandRef = React.useRef<HTMLDivElement | null>(null);
+  const opponentRyukyokuHandRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     if (tileAssetsPreloadedRef.current) return;
@@ -424,6 +426,37 @@ export default function MahjongPage() {
       }
     },
     [playVoice, zundamonMode],
+  );
+
+  const playZundaDynamicVoice = React.useCallback(
+    (text: string, tuning?: VoiceTuning, options?: { persistText?: boolean }) => {
+      if (quoteActiveRef.current) return; // Quote voice/text takes priority.
+      if (!text) return;
+
+      if (zundaVoiceResetTimerRef.current) {
+        clearTimeout(zundaVoiceResetTimerRef.current);
+      }
+
+      stopVoice();
+      setZundaTextSource('voice');
+      setZundaFullText(text);
+      setZundaDisplayedText('');
+
+      const baseText = ZUNDAMON_STATES[zundamonMode]?.text ?? ZUNDAMON_STATES.waiting.text;
+      const shouldPersist = Boolean(options?.persistText);
+      persistentVoiceRef.current = shouldPersist;
+      if (!shouldPersist) {
+        const duration = Math.max(text.length * 50 + 1200, 1500);
+        zundaVoiceResetTimerRef.current = setTimeout(() => {
+          setZundaTextSource('state');
+          setZundaFullText(baseText);
+          setZundaDisplayedText('');
+        }, duration);
+      }
+
+      playVoiceDynamic(text, tuning);
+    },
+    [playVoiceDynamic, stopVoice, zundamonMode],
   );
 
   const resetZundaText = React.useCallback(() => {
@@ -520,8 +553,9 @@ export default function MahjongPage() {
 
     if (
       isRoundResolution &&
-      roundResult.winner === 'player' &&
       gameState === 'match_end' &&
+      roundResult.applied &&
+      scores.player > scores.opponent &&
       !playerWinVoicePlayedRef.current
     ) {
       if (zundaVoiceResetTimerRef.current) {
@@ -533,7 +567,7 @@ export default function MahjongPage() {
       playZundaVoice('player_win', { persistText: true });
       playerWinVoicePlayedRef.current = true;
     }
-  }, [roundResult, gameState, playSe, playZundaVoice]);
+  }, [roundResult, gameState, playSe, playZundaVoice, scores.player, scores.opponent]);
 
   React.useEffect(() => {
     if (gameState !== 'player_turn') {
@@ -575,12 +609,12 @@ export default function MahjongPage() {
     };
   }, [roundResult]);
 
+  const isFinalWinnerDecided = gameState === 'match_end' && roundResult?.applied && scores.player !== scores.opponent;
   const finalShareText = React.useMemo(() => {
-    if (gameState !== 'match_end' || !roundResult?.applied) return '';
-    const winnerLabel =
-      scores.player === scores.opponent ? '引き分け' : scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！';
+    if (!isFinalWinnerDecided) return '';
+    const winnerLabel = scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！';
     return `ずんだ麻雀 終局：${winnerLabel} 最終スコア あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点`;
-  }, [gameState, roundResult?.applied, scores]);
+  }, [isFinalWinnerDecided, scores]);
 
   const handleShareToX = React.useCallback(() => {
     if (!finalShareText) return;
@@ -601,6 +635,13 @@ export default function MahjongPage() {
     playSe('discard');
     discardTile(0, true);
   }, [discardTile, playSe]);
+
+  const scrollHandRow = React.useCallback((ref: React.RefObject<HTMLDivElement>, direction: 'left' | 'right') => {
+    const el = ref.current;
+    if (!el) return;
+    const delta = direction === 'left' ? -240 : 240;
+    el.scrollBy({ left: delta, behavior: 'smooth' });
+  }, []);
 
   const opponentWinTileForReveal = React.useMemo<TileId | null>(() => {
     if (!roundResult) return null;
@@ -947,14 +988,35 @@ export default function MahjongPage() {
                     <div>
                       <p className="text-sm font-bold text-green-50 mb-1">ずんだもんの手牌（テンパイ）</p>
                       <div className="bg-black/20 rounded px-3 py-2 overflow-x-auto">
-                        <div className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
-                          {opponentHandOnRyukyoku.map((tile, i) => (
-                            <Tile
-                              key={`${tile}-${i}`}
-                              tileId={tile}
-                              className="w-12 h-[72px] sm:w-14 sm:h-[84px] shadow-none cursor-default transform-none"
-                            />
-                          ))}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => scrollHandRow(opponentRyukyokuHandRef, 'left')}
+                            className="hidden sm:flex items-center justify-center w-8 h-8 rounded-full bg-black/50 text-white/90 hover:bg-black/70"
+                            aria-label="左へスクロール"
+                          >
+                            ←
+                          </button>
+                          <div
+                            ref={opponentRyukyokuHandRef}
+                            className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full"
+                          >
+                            {opponentHandOnRyukyoku.map((tile, i) => (
+                              <Tile
+                                key={`${tile}-${i}`}
+                                tileId={tile}
+                                className="w-12 h-[72px] sm:w-14 sm:h-[84px] shadow-none cursor-default transform-none"
+                              />
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => scrollHandRow(opponentRyukyokuHandRef, 'right')}
+                            className="hidden sm:flex items-center justify-center w-8 h-8 rounded-full bg-black/50 text-white/90 hover:bg-black/70"
+                            aria-label="右へスクロール"
+                          >
+                            →
+                          </button>
                         </div>
                         {opponentMelds.length > 0 && (
                           <div className="mt-2">
@@ -1015,25 +1077,46 @@ export default function MahjongPage() {
                     <div className="mt-3">
                       <p className="text-sm font-bold text-green-50 mb-1">ずんだもんの手牌</p>
                       <div className="bg-black/20 rounded px-3 py-2 overflow-x-auto">
-                        <div className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full">
-                          {opponentHand.map((tile, i) => (
-                            <Tile
-                              key={`${tile}-${i}`}
-                              tileId={tile}
-                              className="w-12 h-[72px] sm:w-14 sm:h-[84px] shadow-none cursor-default transform-none"
-                            />
-                          ))}
-                          {opponentWinTileForReveal && (
-                            <div className="ml-2 flex items-center gap-2">
-                              <span className="text-[11px] text-green-50/80 whitespace-nowrap">
-                                {roundResult.reason === 'tsumo' ? 'ツモ牌' : 'ロン牌'}
-                              </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => scrollHandRow(opponentResultHandRef, 'left')}
+                            className="hidden sm:flex items-center justify-center w-8 h-8 rounded-full bg-black/50 text-white/90 hover:bg-black/70"
+                            aria-label="左へスクロール"
+                          >
+                            ←
+                          </button>
+                          <div
+                            ref={opponentResultHandRef}
+                            className="flex items-center gap-1 flex-nowrap overflow-x-auto no-scrollbar w-full"
+                          >
+                            {opponentHand.map((tile, i) => (
                               <Tile
-                                tileId={opponentWinTileForReveal}
-                                className="w-12 h-[72px] sm:w-14 sm:h-[84px] shadow-none cursor-default transform-none ring-2 ring-yellow-300"
+                                key={`${tile}-${i}`}
+                                tileId={tile}
+                                className="w-12 h-[72px] sm:w-14 sm:h-[84px] shadow-none cursor-default transform-none"
                               />
-                            </div>
-                          )}
+                            ))}
+                            {opponentWinTileForReveal && (
+                              <div className="ml-2 flex items-center gap-2">
+                                <span className="text-[11px] text-green-50/80 whitespace-nowrap">
+                                  {roundResult.reason === 'tsumo' ? 'ツモ牌' : 'ロン牌'}
+                                </span>
+                                <Tile
+                                  tileId={opponentWinTileForReveal}
+                                  className="w-12 h-[72px] sm:w-14 sm:h-[84px] shadow-none cursor-default transform-none ring-2 ring-yellow-300"
+                                />
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => scrollHandRow(opponentResultHandRef, 'right')}
+                            className="hidden sm:flex items-center justify-center w-8 h-8 rounded-full bg-black/50 text-white/90 hover:bg-black/70"
+                            aria-label="右へスクロール"
+                          >
+                            →
+                          </button>
                         </div>
 
                         {opponentMelds.length > 0 && (
@@ -1099,20 +1182,19 @@ export default function MahjongPage() {
               <p className="text-2xl mb-2">
                 {scores.player === scores.opponent ? '引き分け' : scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！'}
               </p>
-              <div className="flex flex-wrap gap-2 justify-center mb-3">
-                <button
-                  onClick={() => {
-                    playSe('click');
-                    handleShareToX();
-                  }}
-                  disabled={!finalShareText}
-                  className={`px-5 py-2 rounded-lg font-bold border border-white/30 bg-black/30 hover:bg-black/20 ${
-                    !finalShareText ? 'opacity-60 cursor-not-allowed' : ''
-                  }`}
-                >
-                  X に投稿
-                </button>
-              </div>
+              {isFinalWinnerDecided && (
+                <div className="flex flex-wrap gap-2 justify-center mb-3">
+                  <button
+                    onClick={() => {
+                      playSe('click');
+                      handleShareToX();
+                    }}
+                    className="px-5 py-2 rounded-lg font-bold border border-white/30 bg-black/30 hover:bg-black/20"
+                  >
+                    X に投稿
+                  </button>
+                </div>
+              )}
               <button
                 onClick={() => {
                   playSe('click');

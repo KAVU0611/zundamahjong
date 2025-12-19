@@ -23,6 +23,8 @@ export type VoiceTuning = {
   speedScale?: number;
   pitchScale?: number;
   intonationScale?: number;
+  pauseLengthScale?: number;
+  playbackRate?: number;
 };
 
 export type VoiceSource =
@@ -100,6 +102,7 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
             ...(tuning?.speedScale ? { speedScale: tuning.speedScale } : {}),
             ...(tuning?.pitchScale !== undefined ? { pitchScale: tuning.pitchScale } : {}),
             ...(tuning?.intonationScale !== undefined ? { intonationScale: tuning.intonationScale } : {}),
+            ...(tuning?.pauseLengthScale !== undefined ? { pauseLengthScale: tuning.pauseLengthScale } : {}),
           };
           const synth = await fetch(`${voicevoxUrl}/synthesis?speaker=3`, {
             method: 'POST',
@@ -112,7 +115,13 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
           dynamicVoiceCacheRef.current.set(key, objectUrl);
         }
         const audio = getAudio(objectUrl, voiceVolume);
-        if (tuning?.speedScale) audio.playbackRate = tuning.speedScale;
+        if (voiceChannelRef.current && voiceChannelRef.current !== audio) {
+          voiceChannelRef.current.pause();
+          voiceChannelRef.current.currentTime = 0;
+        }
+        voiceChannelRef.current = audio;
+        if (tuning?.playbackRate !== undefined) audio.playbackRate = tuning.playbackRate;
+        else if (tuning?.speedScale) audio.playbackRate = tuning.speedScale;
         try {
           await tryPlay(audio);
         } catch {
@@ -166,6 +175,11 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
         if (source.type === 'dynamic') return playVoiceDynamic(source.text, source.tuning);
         if (source.type === 'asset') {
           const audio = getAudio(source.url, voiceVolume);
+          if (voiceChannelRef.current && voiceChannelRef.current !== audio) {
+            voiceChannelRef.current.pause();
+            voiceChannelRef.current.currentTime = 0;
+          }
+          voiceChannelRef.current = audio;
           return tryPlay(audio).catch(() => undefined);
         }
         return Promise.resolve();
