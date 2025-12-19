@@ -345,7 +345,7 @@ export default function MahjongPage() {
     resolveCall,
     resolveWinPrompt,
     handleRiichi,
-  } = useMahjong({ onQuote: handleQuote, suppressRoundEndQuotes: true });
+  } = useMahjong({ onQuote: handleQuote, suppressRoundEndQuotes: false });
   const zundamonMode = (reaction === 'none' ? (gameState as keyof typeof ZUNDAMON_STATES) : reaction) ?? 'waiting';
   React.useEffect(() => {
     zundamonModeRef.current = zundamonMode;
