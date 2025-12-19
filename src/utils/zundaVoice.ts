@@ -35,7 +35,7 @@ const QUOTE_VOICES: Record<ZundaQuoteCategory, ZundaVoiceLine[]> = {
     },
   ],
   WIN_SMALL_RON: [
-    { file: '/sounds/voice/quotes/WIN_SMALL_0.wav', text: 'はい、ロン。え？安い？点数じゃないのだ。君の「流れ」を断ち切るのが目的なのだ、雑魚。' },
+    { file: '/sounds/voice/quotes/WIN_SMALL_0.wav', text: 'はい、あがり。え？安い？点数じゃないのだ。キミの「流れ」を断ち切るのが目的なのだ、雑魚。' },
   ],
   WIN_SMALL_TSUMO: [
     {
