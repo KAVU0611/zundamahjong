@@ -53,7 +53,7 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
 
   const audioCacheRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const voiceChannelRef = useRef<HTMLAudioElement | null>(null);
-  const singleChannelRef = useRef<HTMLAudioElement | null>(null);
+  const seChannelRef = useRef<HTMLAudioElement | null>(null);
 
   const getAudio = useCallback(
     (src: string, volume: number) => {
@@ -68,27 +68,24 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
     [],
   );
 
-  const stopCurrentAudio = useCallback((next?: HTMLAudioElement) => {
-    const current = singleChannelRef.current;
+  const stopChannelAudio = useCallback((channel: 'se' | 'voice', next?: HTMLAudioElement) => {
+    const ref = channel === 'voice' ? voiceChannelRef : seChannelRef;
+    const current = ref.current;
     if (current && current !== next) {
       current.pause();
       current.currentTime = 0;
     }
-    if (next) singleChannelRef.current = next;
+    if (next) {
+      ref.current = next;
+    } else {
+      ref.current = null;
+    }
   }, []);
 
   const playWithFallback = useCallback(
-    async (sources: SoundSources, volume: number, singleChannel?: 'voice') => {
+    async (sources: SoundSources, volume: number, channel: 'se' | 'voice') => {
       const preferred = getAudio(sources.preferred, volume);
-      stopCurrentAudio(preferred);
-
-      if (singleChannel === 'voice') {
-        if (voiceChannelRef.current && voiceChannelRef.current !== preferred) {
-          voiceChannelRef.current.pause();
-          voiceChannelRef.current.currentTime = 0;
-        }
-        voiceChannelRef.current = preferred;
-      }
+      stopChannelAudio(channel, preferred);
 
       try {
         await tryPlay(preferred);
@@ -99,45 +96,34 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
 
       if (!sources.fallback) return;
       const fallback = getAudio(sources.fallback, volume);
-      stopCurrentAudio(fallback);
-      if (singleChannel === 'voice') voiceChannelRef.current = fallback;
+      stopChannelAudio(channel, fallback);
       try {
         await tryPlay(fallback);
       } catch {
         // Autoplay restrictions etc. are non-fatal; user interaction will enable later.
       }
     },
-    [getAudio, stopCurrentAudio],
+    [getAudio, stopChannelAudio],
   );
 
   const api = useMemo(() => {
     return {
-      playSe: (key: SeKey) => playWithFallback(SE_SOURCES[key], seVolume),
+      playSe: (key: SeKey) => playWithFallback(SE_SOURCES[key], seVolume, 'se'),
       playVoice: (key: VoiceKey) => playWithFallback(VOICE_SOURCES[key], voiceVolume, 'voice'),
       playVoiceSource: (source: VoiceSource) => {
         if (source.type === 'key') return playWithFallback(VOICE_SOURCES[source.key], voiceVolume, 'voice');
         if (source.type === 'asset') {
           const audio = getAudio(source.url, voiceVolume);
-          stopCurrentAudio(audio);
-          if (voiceChannelRef.current && voiceChannelRef.current !== audio) {
-            voiceChannelRef.current.pause();
-            voiceChannelRef.current.currentTime = 0;
-          }
-          voiceChannelRef.current = audio;
+          stopChannelAudio('voice', audio);
           return tryPlay(audio).catch(() => undefined);
         }
         return Promise.resolve();
       },
       stopVoice: () => {
-        if (!voiceChannelRef.current) return;
-        voiceChannelRef.current.pause();
-        voiceChannelRef.current.currentTime = 0;
-        if (singleChannelRef.current === voiceChannelRef.current) {
-          singleChannelRef.current = null;
-        }
+        stopChannelAudio('voice');
       },
     };
-  }, [playWithFallback, seVolume, voiceVolume, getAudio, stopCurrentAudio]);
+  }, [playWithFallback, seVolume, voiceVolume, getAudio, stopChannelAudio]);
 
   useEffect(() => {
     // Keep cached volumes in sync if options change.
