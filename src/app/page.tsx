@@ -724,7 +724,7 @@ export default function MahjongPage() {
                 <p className="text-xs sm:text-sm text-green-100 mt-1">ドラ: {doraTiles.join(', ') || 'なし'}</p>
               </div>
 
-              <div className="order-1 sm:order-2 flex flex-col items-center gap-1 relative z-40">
+              <div className="order-1 sm:order-2 flex flex-col items-center gap-1 relative z-30">
                 <Zundamon mode={zundamonMode} text={zundaDisplayedText} />
               </div>
 
@@ -876,7 +876,7 @@ export default function MahjongPage() {
       )}
 
       {kanSelectOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-30">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100]">
           <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
             <p className="font-bold mb-3">カンする牌を選んでください</p>
             <div className="flex flex-wrap gap-2">
@@ -912,7 +912,7 @@ export default function MahjongPage() {
       )}
 
       {winPrompt && !roundResult && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-30">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100]">
           <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
             <p className="font-bold mb-3">ツモしますか？</p>
             <div className="flex gap-2 justify-end">
@@ -940,7 +940,7 @@ export default function MahjongPage() {
       )}
 
       {roundResult && (
-        <div className="fixed inset-0 bg-black/60 flex flex-col items-center justify-center z-30">
+        <div className="fixed inset-0 bg-black/60 flex flex-col items-center justify-center z-[100]">
           <p className="text-4xl font-bold mb-4">{overlayTitle}</p>
           <p className="mb-4 text-xl">{round?.label}</p>
           {resultDetails && (
