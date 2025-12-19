@@ -64,6 +64,7 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
 
   const audioCacheRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const voiceChannelRef = useRef<HTMLAudioElement | null>(null);
+  const singleChannelRef = useRef<HTMLAudioElement | null>(null);
   const dynamicVoiceCacheRef = useRef<Map<string, string>>(new Map()); // key -> object URL
 
   const getAudio = useCallback(
@@ -78,6 +79,15 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
     },
     [],
   );
+
+  const stopCurrentAudio = useCallback((next?: HTMLAudioElement) => {
+    const current = singleChannelRef.current;
+    if (current && current !== next) {
+      current.pause();
+      current.currentTime = 0;
+    }
+    if (next) singleChannelRef.current = next;
+  }, []);
 
   const voicevoxUrl =
     typeof process !== 'undefined'
@@ -115,6 +125,7 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
           dynamicVoiceCacheRef.current.set(key, objectUrl);
         }
         const audio = getAudio(objectUrl, voiceVolume);
+        stopCurrentAudio(audio);
         if (voiceChannelRef.current && voiceChannelRef.current !== audio) {
           voiceChannelRef.current.pause();
           voiceChannelRef.current.currentTime = 0;
@@ -131,12 +142,13 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
         console.error('Failed to play dynamic voice:', err);
       }
     },
-    [getAudio, voiceVolume, voicevoxUrl],
+    [getAudio, voiceVolume, voicevoxUrl, stopCurrentAudio],
   );
 
   const playWithFallback = useCallback(
     async (sources: SoundSources, volume: number, singleChannel?: 'voice') => {
       const preferred = getAudio(sources.preferred, volume);
+      stopCurrentAudio(preferred);
 
       if (singleChannel === 'voice') {
         if (voiceChannelRef.current && voiceChannelRef.current !== preferred) {
@@ -155,6 +167,7 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
 
       if (!sources.fallback) return;
       const fallback = getAudio(sources.fallback, volume);
+      stopCurrentAudio(fallback);
       if (singleChannel === 'voice') voiceChannelRef.current = fallback;
       try {
         await tryPlay(fallback);
@@ -162,7 +175,7 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
         // Autoplay restrictions etc. are non-fatal; user interaction will enable later.
       }
     },
-    [getAudio],
+    [getAudio, stopCurrentAudio],
   );
 
   const api = useMemo(() => {
@@ -175,6 +188,7 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
         if (source.type === 'dynamic') return playVoiceDynamic(source.text, source.tuning);
         if (source.type === 'asset') {
           const audio = getAudio(source.url, voiceVolume);
+          stopCurrentAudio(audio);
           if (voiceChannelRef.current && voiceChannelRef.current !== audio) {
             voiceChannelRef.current.pause();
             voiceChannelRef.current.currentTime = 0;
@@ -188,9 +202,12 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
         if (!voiceChannelRef.current) return;
         voiceChannelRef.current.pause();
         voiceChannelRef.current.currentTime = 0;
+        if (singleChannelRef.current === voiceChannelRef.current) {
+          singleChannelRef.current = null;
+        }
       },
     };
-  }, [playWithFallback, seVolume, voiceVolume, playVoiceDynamic, getAudio]);
+  }, [playWithFallback, seVolume, voiceVolume, playVoiceDynamic, getAudio, stopCurrentAudio]);
 
   useEffect(() => {
     // Keep cached volumes in sync if options change.

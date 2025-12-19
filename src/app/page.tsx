@@ -363,6 +363,7 @@ export default function MahjongPage() {
   const prevOpponentRiverCountRef = React.useRef(0);
   const prevRoundResultKeyRef = React.useRef<string | null>(null);
   const playerWinVoicePlayedRef = React.useRef(false);
+  const prevFinalSummaryRef = React.useRef(false);
   const slowWarnedRef = React.useRef(false);
   const tileAssetsPreloadedRef = React.useRef(false);
   const opponentResultHandRef = React.useRef<HTMLDivElement | null>(null);
@@ -532,6 +533,7 @@ export default function MahjongPage() {
     if (!roundResult) {
       prevRoundResultKeyRef.current = null;
       playerWinVoicePlayedRef.current = false;
+      prevFinalSummaryRef.current = false;
       return;
     }
     const key = `${roundResult.reason}-${roundResult.winner ?? 'none'}-${roundResult.loser ?? 'none'}`;
@@ -551,13 +553,9 @@ export default function MahjongPage() {
       }
     }
 
-    if (
-      isRoundResolution &&
-      gameState === 'match_end' &&
-      roundResult.applied &&
-      scores.player > scores.opponent &&
-      !playerWinVoicePlayedRef.current
-    ) {
+    const isFinalSummary = gameState === 'match_end' && roundResult.applied;
+    const wasFinalSummary = prevFinalSummaryRef.current;
+    if (isRoundResolution && isFinalSummary && !wasFinalSummary && scores.player > scores.opponent && !playerWinVoicePlayedRef.current) {
       if (zundaVoiceResetTimerRef.current) {
         clearTimeout(zundaVoiceResetTimerRef.current);
         zundaVoiceResetTimerRef.current = null;
@@ -567,6 +565,7 @@ export default function MahjongPage() {
       playZundaVoice('player_win', { persistText: true });
       playerWinVoicePlayedRef.current = true;
     }
+    prevFinalSummaryRef.current = isFinalSummary;
   }, [roundResult, gameState, playSe, playZundaVoice, scores.player, scores.opponent]);
 
   React.useEffect(() => {
@@ -613,7 +612,7 @@ export default function MahjongPage() {
   const finalShareText = React.useMemo(() => {
     if (!isFinalWinnerDecided) return '';
     const winnerLabel = scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！';
-    return `ずんだ麻雀 終局：${winnerLabel} 最終スコア あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点`;
+    return `ずんだ麻雀 終局：${winnerLabel} 最終スコア あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点\n作成者：島根のAIエンジニア三原健人`;
   }, [isFinalWinnerDecided, scores]);
 
   const handleShareToX = React.useCallback(() => {
