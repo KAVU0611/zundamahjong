@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "build": "next build",
     "start": "next start",
     "sanity": "tsc -p tsconfig.sanity.json && node .tmp_sanity/scripts/fu_sanity.js && node .tmp_sanity/scripts/dora_sanity.js",
     "lint": "eslint"
