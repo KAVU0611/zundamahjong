@@ -262,6 +262,7 @@ export default function MahjongPage() {
   const [zundaFullText, setZundaFullText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
   const [zundaDisplayedText, setZundaDisplayedText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
   const [zundaTextSource, setZundaTextSource] = React.useState<'state' | 'voice'>('state');
+  const [finalNarrationText, setFinalNarrationText] = React.useState<string>('');
   const zundaVoiceResetTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const zundamonModeRef = React.useRef<keyof typeof ZUNDAMON_STATES>('waiting');
   const quoteActiveRef = React.useRef(false);
@@ -348,7 +349,7 @@ export default function MahjongPage() {
     resolveCall,
     resolveWinPrompt,
     handleRiichi,
-  } = useMahjong({ onQuote: handleQuote });
+  } = useMahjong({ onQuote: handleQuote, suppressRoundEndQuotes: true });
   const zundamonMode = (reaction === 'none' ? (gameState as keyof typeof ZUNDAMON_STATES) : reaction) ?? 'waiting';
   React.useEffect(() => {
     zundamonModeRef.current = zundamonMode;
@@ -534,6 +535,7 @@ export default function MahjongPage() {
       prevRoundResultKeyRef.current = null;
       playerWinVoicePlayedRef.current = false;
       prevFinalSummaryRef.current = false;
+      setFinalNarrationText('');
       return;
     }
     const key = `${roundResult.reason}-${roundResult.winner ?? 'none'}-${roundResult.loser ?? 'none'}`;
@@ -541,6 +543,7 @@ export default function MahjongPage() {
     if (isNewResult) {
       prevRoundResultKeyRef.current = key;
       playerWinVoicePlayedRef.current = false;
+      setFinalNarrationText('');
     }
 
     const isRoundResolution =
@@ -548,9 +551,6 @@ export default function MahjongPage() {
 
     if (isNewResult && isRoundResolution) {
       playSe('win');
-      if (roundResult.winner === 'opponent') {
-        playZundaVoice(roundResult.reason === 'tsumo' ? 'tsumo' : 'ron', { persistText: true });
-      }
     }
 
     const isFinalSummary = gameState === 'match_end' && roundResult.applied;
@@ -562,11 +562,13 @@ export default function MahjongPage() {
       }
       quoteActiveRef.current = false;
       persistentVoiceRef.current = false;
-      playZundaVoice('player_win', { persistText: true });
+      stopVoice();
+      setFinalNarrationText(LOSE_QUOTE_LONG);
+      playVoice(ZUNDA_VOICE_KEY_TO_SOUND.player_win);
       playerWinVoicePlayedRef.current = true;
     }
     prevFinalSummaryRef.current = isFinalSummary;
-  }, [roundResult, gameState, playSe, playZundaVoice, scores.player, scores.opponent]);
+  }, [roundResult, gameState, playSe, playVoice, stopVoice, scores.player, scores.opponent]);
 
   React.useEffect(() => {
     if (gameState !== 'player_turn') {
@@ -609,10 +611,11 @@ export default function MahjongPage() {
   }, [roundResult]);
 
   const isFinalWinnerDecided = gameState === 'match_end' && roundResult?.applied && scores.player !== scores.opponent;
+  const isPlayerFinalWinner = isFinalWinnerDecided && scores.player > scores.opponent;
   const finalShareText = React.useMemo(() => {
     if (!isFinalWinnerDecided) return '';
     const winnerLabel = scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！';
-    return `ずんだ麻雀 終局：${winnerLabel} 最終スコア あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点\n作成者：島根のAIエンジニア三原健人`;
+    return `ずんだ麻雀 終局：${winnerLabel} 最終スコア あなた ${scores.player} 点 / ずんだもん ${scores.opponent} 点\nhttps://zundamahjong.com\n(作成者: 島根のAIエンジニア @miharaeditor)`;
   }, [isFinalWinnerDecided, scores]);
 
   const handleShareToX = React.useCallback(() => {
@@ -1181,6 +1184,13 @@ export default function MahjongPage() {
               <p className="text-2xl mb-2">
                 {scores.player === scores.opponent ? '引き分け' : scores.player > scores.opponent ? 'あなたの勝ち！' : 'ずんだもんの勝ち！'}
               </p>
+              {isPlayerFinalWinner && finalNarrationText && (
+                <div className="mx-auto mb-4 w-full max-w-2xl bg-black/20 border border-white/20 rounded-lg p-4 text-left">
+                  <p className="text-sm sm:text-base leading-relaxed text-green-50 whitespace-pre-line max-h-[40vh] overflow-y-auto pr-1">
+                    {finalNarrationText}
+                  </p>
+                </div>
+              )}
               {isFinalWinnerDecided && (
                 <div className="flex flex-wrap gap-2 justify-center mb-3">
                   <button

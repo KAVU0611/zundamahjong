@@ -312,7 +312,10 @@ type QuoteTriggerOptions = {
   voiceParams?: { speedScale?: number; pitchScale?: number; intonationScale?: number };
 };
 
-export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, options?: QuoteTriggerOptions) => void }) => {
+export const useMahjong = (opts?: {
+  onQuote?: (category: ZundaQuoteCategory, options?: QuoteTriggerOptions) => void;
+  suppressRoundEndQuotes?: boolean;
+}) => {
   const [gameState, setGameState] = useState<GameState>('waiting');
   const [roundIndex, setRoundIndex] = useState(0);
   const [honba, setHonba] = useState(0);
@@ -766,8 +769,10 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
       const dealerTenpai = isTenpaiWithDrawn(dealerHand, dealerDrawn, dealerMeldCount);
       const playerTenpai = isTenpaiWithDrawn(playerHand, playerDrawn, playerMelds.length);
       const opponentTenpai = isTenpaiWithDrawn(opponentHand, opponentDrawn, opponentMelds.length);
-      if (opponentTenpai) emitQuote('DRAW_TENPAI', { force: true, persistText: true });
-      else emitQuote('DRAW_NOTEN', { force: true, persistText: true });
+      if (!opts?.suppressRoundEndQuotes) {
+        if (opponentTenpai) emitQuote('DRAW_TENPAI', { force: true, persistText: true });
+        else emitQuote('DRAW_NOTEN', { force: true, persistText: true });
+      }
       endRound({
         winner: null,
         loser: null,
@@ -897,21 +902,23 @@ export const useMahjong = (opts?: { onQuote?: (category: ZundaQuoteCategory, opt
       const kyotakuPoints = kyotaku * 1000;
       const willRepeat = isDealer; // 親のアガリは連荘
 
-      if (winner === 'opponent') {
-        emitQuote(handPoints >= 8000 ? 'WIN_BIG' : 'WIN_SMALL', { force: true, persistText: true });
-        const isFinal = roundIndex === ROUNDS.length - 1 && !willRepeat;
-        if (isFinal) emitQuote('GAME_WIN', { force: true, persistText: true });
-      }
-      if (winner === 'player') {
-        const category =
-          handPoints <= 3900 ? 'PLAYER_WIN_LOW' : handPoints >= 8000 ? 'PLAYER_WIN_HIGH' : 'PLAYER_WIN_GENERIC';
-        const voiceParams =
-          category === 'PLAYER_WIN_LOW'
-            ? { speedScale: 1.2, pitchScale: 0.1 }
-            : category === 'PLAYER_WIN_HIGH'
-              ? { intonationScale: 0.5, speedScale: 1.1, pitchScale: 0 }
-              : { speedScale: 1.3, intonationScale: 1.5 };
-        emitQuote(category, { force: true, voiceParams, persistText: true });
+      if (!opts?.suppressRoundEndQuotes) {
+        if (winner === 'opponent') {
+          emitQuote(handPoints >= 8000 ? 'WIN_BIG' : 'WIN_SMALL', { force: true, persistText: true });
+          const isFinal = roundIndex === ROUNDS.length - 1 && !willRepeat;
+          if (isFinal) emitQuote('GAME_WIN', { force: true, persistText: true });
+        }
+        if (winner === 'player') {
+          const category =
+            handPoints <= 3900 ? 'PLAYER_WIN_LOW' : handPoints >= 8000 ? 'PLAYER_WIN_HIGH' : 'PLAYER_WIN_GENERIC';
+          const voiceParams =
+            category === 'PLAYER_WIN_LOW'
+              ? { speedScale: 1.2, pitchScale: 0.1 }
+              : category === 'PLAYER_WIN_HIGH'
+                ? { intonationScale: 0.5, speedScale: 1.1, pitchScale: 0 }
+                : { speedScale: 1.3, intonationScale: 1.5 };
+          emitQuote(category, { force: true, voiceParams, persistText: true });
+        }
       }
 
       endRound({
