@@ -3,7 +3,7 @@
 import React from 'react';
 import Image from 'next/image';
 import { useMahjong, TileId, GameState } from '../hooks/useMahjong';
-import { useSounds, VoiceKey, VoiceTuning } from '../hooks/useSounds';
+import { useSounds, VoiceKey } from '../hooks/useSounds';
 import { TILE_ASSET_PATHS, TILE_ID_TO_IMAGE_MAP } from './tileAssets';
 import { pickZundaQuote, type ZundaQuoteCategory } from '../lib/zundaQuotes';
 import { getZundaVoice } from '../utils/zundaVoice';
@@ -124,7 +124,7 @@ const ZUNDA_VOICE_MAP = {
 };
 
 type ZundaVoiceKey = keyof typeof ZUNDA_VOICE_MAP;
-const ZUNDA_VOICE_KEY_TO_SOUND: Record<ZundaVoiceKey, `zunda_${string}`> = {
+const ZUNDA_VOICE_KEY_TO_SOUND: Record<ZundaVoiceKey, VoiceKey> = {
   start: 'zunda_start',
   dora: 'zunda_dora',
   kan: 'zunda_kan',
@@ -258,7 +258,7 @@ const PlayerHand: React.FC<PlayerHandProps> = ({
 };
 
 export default function MahjongPage() {
-  const { playSe, playVoice, playVoiceDynamic, playVoiceSource, stopVoice } = useSounds();
+  const { playSe, playVoice, playVoiceSource, stopVoice } = useSounds();
   const [zundaFullText, setZundaFullText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
   const [zundaDisplayedText, setZundaDisplayedText] = React.useState<string>(ZUNDAMON_STATES.waiting.text);
   const [zundaTextSource, setZundaTextSource] = React.useState<'state' | 'voice'>('state');
@@ -269,7 +269,7 @@ export default function MahjongPage() {
   const persistentVoiceRef = React.useRef(false);
 
   const triggerQuote = React.useCallback(
-    (category: ZundaQuoteCategory, options?: { force?: boolean; voiceParams?: VoiceTuning; persistText?: boolean }) => {
+    (category: ZundaQuoteCategory, options?: { force?: boolean; persistText?: boolean }) => {
       const force = options?.force ?? false;
       if (!force && Math.random() >= 0.3) return;
       const voiceLine = getZundaVoice(category);
@@ -294,17 +294,13 @@ export default function MahjongPage() {
       }
       if (voiceLine?.file) {
         playVoiceSource({ type: 'asset', url: voiceLine.file });
-      } else if (options?.voiceParams) {
-        playVoiceDynamic(text, options.voiceParams);
-      } else {
-        playVoiceDynamic(text);
       }
     },
-    [playVoiceDynamic, playVoiceSource, stopVoice],
+    [playVoiceSource, stopVoice],
   );
 
   const handleQuote = React.useCallback(
-    (category: ZundaQuoteCategory, options?: { force?: boolean; voiceParams?: VoiceTuning; persistText?: boolean }) => {
+    (category: ZundaQuoteCategory, options?: { force?: boolean; persistText?: boolean }) => {
       triggerQuote(category, { ...options, persistText: options?.persistText });
     },
     [triggerQuote],
@@ -428,37 +424,6 @@ export default function MahjongPage() {
       }
     },
     [playVoice, zundamonMode],
-  );
-
-  const playZundaDynamicVoice = React.useCallback(
-    (text: string, tuning?: VoiceTuning, options?: { persistText?: boolean }) => {
-      if (quoteActiveRef.current) return; // Quote voice/text takes priority.
-      if (!text) return;
-
-      if (zundaVoiceResetTimerRef.current) {
-        clearTimeout(zundaVoiceResetTimerRef.current);
-      }
-
-      stopVoice();
-      setZundaTextSource('voice');
-      setZundaFullText(text);
-      setZundaDisplayedText('');
-
-      const baseText = ZUNDAMON_STATES[zundamonMode]?.text ?? ZUNDAMON_STATES.waiting.text;
-      const shouldPersist = Boolean(options?.persistText);
-      persistentVoiceRef.current = shouldPersist;
-      if (!shouldPersist) {
-        const duration = Math.max(text.length * 50 + 1200, 1500);
-        zundaVoiceResetTimerRef.current = setTimeout(() => {
-          setZundaTextSource('state');
-          setZundaFullText(baseText);
-          setZundaDisplayedText('');
-        }, duration);
-      }
-
-      playVoiceDynamic(text, tuning);
-    },
-    [playVoiceDynamic, stopVoice, zundamonMode],
   );
 
   const resetZundaText = React.useCallback(() => {
@@ -638,12 +603,15 @@ export default function MahjongPage() {
     discardTile(0, true);
   }, [discardTile, playSe]);
 
-  const scrollHandRow = React.useCallback((ref: React.RefObject<HTMLDivElement>, direction: 'left' | 'right') => {
-    const el = ref.current;
-    if (!el) return;
-    const delta = direction === 'left' ? -240 : 240;
-    el.scrollBy({ left: delta, behavior: 'smooth' });
-  }, []);
+  const scrollHandRow = React.useCallback(
+    (ref: React.RefObject<HTMLDivElement | null>, direction: 'left' | 'right') => {
+      const el = ref.current;
+      if (!el) return;
+      const delta = direction === 'left' ? -240 : 240;
+      el.scrollBy({ left: delta, behavior: 'smooth' });
+    },
+    [],
+  );
 
   const opponentWinTileForReveal = React.useMemo<TileId | null>(() => {
     if (!roundResult) return null;

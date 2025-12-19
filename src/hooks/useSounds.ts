@@ -19,18 +19,7 @@ export type VoiceKey =
   | 'zunda_start'
   | 'zunda_player_win';
 
-export type VoiceTuning = {
-  speedScale?: number;
-  pitchScale?: number;
-  intonationScale?: number;
-  pauseLengthScale?: number;
-  playbackRate?: number;
-};
-
-export type VoiceSource =
-  | { type: 'key'; key: VoiceKey }
-  | { type: 'dynamic'; text: string; tuning?: VoiceTuning }
-  | { type: 'asset'; url: string };
+export type VoiceSource = { type: 'key'; key: VoiceKey } | { type: 'asset'; url: string };
 
 const SE_SOURCES: Record<SeKey, SoundSources> = {
   discard: { preferred: '/sounds/se/discard.wav', fallback: '/sounds/se/discard.mp3' },
@@ -65,7 +54,6 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
   const audioCacheRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const voiceChannelRef = useRef<HTMLAudioElement | null>(null);
   const singleChannelRef = useRef<HTMLAudioElement | null>(null);
-  const dynamicVoiceCacheRef = useRef<Map<string, string>>(new Map()); // key -> object URL
 
   const getAudio = useCallback(
     (src: string, volume: number) => {
@@ -88,62 +76,6 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
     }
     if (next) singleChannelRef.current = next;
   }, []);
-
-  const voicevoxUrl =
-    typeof process !== 'undefined'
-      ? process.env.NEXT_PUBLIC_VOICEVOX_URL || 'http://localhost:50021'
-      : 'http://localhost:50021';
-
-  const playVoiceDynamic = useCallback(
-    async (text: string, tuning?: VoiceTuning) => {
-      if (!text) return;
-      const key = `${text}::${JSON.stringify(tuning || {})}`;
-      try {
-        let objectUrl = dynamicVoiceCacheRef.current.get(key);
-        if (!objectUrl) {
-          const query = await fetch(
-            `${voicevoxUrl}/audio_query?text=${encodeURIComponent(text)}&speaker=3`,
-            { method: 'POST' },
-          );
-          if (!query.ok) throw new Error(`voicevox audio_query failed: ${query.status}`);
-          const queryJson = await query.json();
-          const body = {
-            ...queryJson,
-            ...(tuning?.speedScale ? { speedScale: tuning.speedScale } : {}),
-            ...(tuning?.pitchScale !== undefined ? { pitchScale: tuning.pitchScale } : {}),
-            ...(tuning?.intonationScale !== undefined ? { intonationScale: tuning.intonationScale } : {}),
-            ...(tuning?.pauseLengthScale !== undefined ? { pauseLengthScale: tuning.pauseLengthScale } : {}),
-          };
-          const synth = await fetch(`${voicevoxUrl}/synthesis?speaker=3`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          if (!synth.ok) throw new Error(`voicevox synthesis failed: ${synth.status}`);
-          const blob = await synth.blob();
-          objectUrl = URL.createObjectURL(blob);
-          dynamicVoiceCacheRef.current.set(key, objectUrl);
-        }
-        const audio = getAudio(objectUrl, voiceVolume);
-        stopCurrentAudio(audio);
-        if (voiceChannelRef.current && voiceChannelRef.current !== audio) {
-          voiceChannelRef.current.pause();
-          voiceChannelRef.current.currentTime = 0;
-        }
-        voiceChannelRef.current = audio;
-        if (tuning?.playbackRate !== undefined) audio.playbackRate = tuning.playbackRate;
-        else if (tuning?.speedScale) audio.playbackRate = tuning.speedScale;
-        try {
-          await tryPlay(audio);
-        } catch {
-          // ignore playback errors (e.g. autoplay)
-        }
-      } catch (err) {
-        console.error('Failed to play dynamic voice:', err);
-      }
-    },
-    [getAudio, voiceVolume, voicevoxUrl, stopCurrentAudio],
-  );
 
   const playWithFallback = useCallback(
     async (sources: SoundSources, volume: number, singleChannel?: 'voice') => {
@@ -182,10 +114,8 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
     return {
       playSe: (key: SeKey) => playWithFallback(SE_SOURCES[key], seVolume),
       playVoice: (key: VoiceKey) => playWithFallback(VOICE_SOURCES[key], voiceVolume, 'voice'),
-      playVoiceDynamic,
       playVoiceSource: (source: VoiceSource) => {
         if (source.type === 'key') return playWithFallback(VOICE_SOURCES[source.key], voiceVolume, 'voice');
-        if (source.type === 'dynamic') return playVoiceDynamic(source.text, source.tuning);
         if (source.type === 'asset') {
           const audio = getAudio(source.url, voiceVolume);
           stopCurrentAudio(audio);
@@ -207,7 +137,7 @@ export const useSounds = (opts?: { seVolume?: number; voiceVolume?: number }) =>
         }
       },
     };
-  }, [playWithFallback, seVolume, voiceVolume, playVoiceDynamic, getAudio, stopCurrentAudio]);
+  }, [playWithFallback, seVolume, voiceVolume, getAudio, stopCurrentAudio]);
 
   useEffect(() => {
     // Keep cached volumes in sync if options change.

@@ -309,7 +309,6 @@ type QuoteTriggerOptions = {
   force?: boolean;
   // When true, the quote/voice text should remain on screen until the user advances.
   persistText?: boolean;
-  voiceParams?: { speedScale?: number; pitchScale?: number; intonationScale?: number };
 };
 
 export const useMahjong = (opts?: {
@@ -911,13 +910,7 @@ export const useMahjong = (opts?: {
         if (winner === 'player') {
           const category =
             handPoints <= 3900 ? 'PLAYER_WIN_LOW' : handPoints >= 8000 ? 'PLAYER_WIN_HIGH' : 'PLAYER_WIN_GENERIC';
-          const voiceParams =
-            category === 'PLAYER_WIN_LOW'
-              ? { speedScale: 1.2, pitchScale: 0.1 }
-              : category === 'PLAYER_WIN_HIGH'
-                ? { intonationScale: 0.5, speedScale: 1.1, pitchScale: 0 }
-                : { speedScale: 1.3, intonationScale: 1.5 };
-          emitQuote(category, { force: true, voiceParams, persistText: true });
+          emitQuote(category, { force: true, persistText: true });
         }
       }
 
