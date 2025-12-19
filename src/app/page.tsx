@@ -808,7 +808,7 @@ export default function MahjongPage() {
         </div>
       </div>
       {callPrompt && !roundResult && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-20">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
             <p className="font-bold mb-2">
               {callPrompt.canRon && !callPrompt.pon && !callPrompt.kan && callPrompt.chiOptions.length === 0

@@ -31,7 +31,7 @@ const QUOTE_VOICES: Record<ZundaQuoteCategory, ZundaVoiceLine[]> = {
   DRAW_NOTEN: [
     {
       file: '/sounds/voice/quotes/DRAW_NOTEN_0.wav',
-      text: 'あえてテンパイを取らなかったのだ。これが「回し打ち」の極意。放銃回避を最優先した高度な戦術。君には理解できない高尚なプレイなのだ。',
+      text: 'あえてテンパイを取らなかったのだ。これが「回し打ち」の極意。放銃回避を最優先した高度な戦術。キミには理解できない高尚なプレイなのだ。',
     },
   ],
   WIN_SMALL_RON: [
