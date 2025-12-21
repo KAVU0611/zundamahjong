@@ -836,6 +836,9 @@ export default function MahjongPage() {
           </section>
         </div>
       </div>
+      <div className="fixed bottom-2 right-2 text-[10px] sm:text-xs text-white/80 drop-shadow">
+        VOICEVOX:ずんだもん
+      </div>
       {callPrompt && !roundResult && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <div className="bg-white text-gray-900 p-4 rounded shadow-lg w-[92vw] max-w-sm">
