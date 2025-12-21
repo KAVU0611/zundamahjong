@@ -361,6 +361,8 @@ export default function MahjongPage() {
   const prevRoundResultKeyRef = React.useRef<string | null>(null);
   const playerWinVoicePlayedRef = React.useRef(false);
   const prevFinalSummaryRef = React.useRef(false);
+  const opponentWinQuoteKeyRef = React.useRef<string | null>(null);
+  const opponentFinalQuotePlayedRef = React.useRef(false);
   const slowWarnedRef = React.useRef(false);
   const tileAssetsPreloadedRef = React.useRef(false);
   const opponentResultHandRef = React.useRef<HTMLDivElement | null>(null);
@@ -500,6 +502,8 @@ export default function MahjongPage() {
       prevRoundResultKeyRef.current = null;
       playerWinVoicePlayedRef.current = false;
       prevFinalSummaryRef.current = false;
+      opponentWinQuoteKeyRef.current = null;
+      opponentFinalQuotePlayedRef.current = false;
       return;
     }
     const key = `${roundResult.reason}-${roundResult.winner ?? 'none'}-${roundResult.loser ?? 'none'}`;
@@ -518,6 +522,31 @@ export default function MahjongPage() {
 
     const isFinalSummary = gameState === 'match_end' && roundResult.applied;
     const wasFinalSummary = prevFinalSummaryRef.current;
+    if (roundResult.winner === 'opponent') {
+      if (isFinalSummary && !opponentFinalQuotePlayedRef.current) {
+        if (!quoteActiveRef.current) {
+          triggerQuote('GAME_WIN', { force: true, persistText: true });
+        }
+        opponentFinalQuotePlayedRef.current = true;
+      } else if (!isFinalSummary) {
+        const opponentKey = `${roundResult.reason}-${roundResult.handPoints ?? 0}`;
+        if (opponentWinQuoteKeyRef.current !== opponentKey) {
+          opponentWinQuoteKeyRef.current = opponentKey;
+          if (!quoteActiveRef.current) {
+            const handPoints = roundResult.handPoints ?? 0;
+            const category =
+              handPoints >= 8000
+                ? 'WIN_BIG'
+                : handPoints < 3900
+                  ? roundResult.reason === 'tsumo'
+                    ? 'WIN_SMALL_TSUMO'
+                    : 'WIN_SMALL_RON'
+                  : 'WIN_SMALL_RON';
+            triggerQuote(category, { force: true, persistText: true });
+          }
+        }
+      }
+    }
     if (isRoundResolution && isFinalSummary && !wasFinalSummary && scores.player > scores.opponent && !playerWinVoicePlayedRef.current) {
       if (zundaVoiceResetTimerRef.current) {
         clearTimeout(zundaVoiceResetTimerRef.current);
@@ -530,7 +559,7 @@ export default function MahjongPage() {
       playerWinVoicePlayedRef.current = true;
     }
     prevFinalSummaryRef.current = isFinalSummary;
-  }, [roundResult, gameState, playSe, playZundaVoice, stopVoice, scores.player, scores.opponent]);
+  }, [roundResult, gameState, playSe, playZundaVoice, stopVoice, scores.player, scores.opponent, triggerQuote]);
 
   React.useEffect(() => {
     if (gameState !== 'player_turn') {

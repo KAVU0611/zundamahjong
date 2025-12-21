@@ -108,6 +108,37 @@ const countAkaDora = (tiles: TileId[]) =>
     return (parsed.base === 'm5' || parsed.base === 'p5' || parsed.base === 's5') && parsed.isRed;
   }).length;
 
+const KOKUSHI_BASES: TileId[] = [
+  'm1',
+  'm9',
+  'p1',
+  'p9',
+  's1',
+  's9',
+  'z1',
+  'z2',
+  'z3',
+  'z4',
+  'z5',
+  'z6',
+  'z7',
+];
+
+const isKokushiHand = (tiles: TileId[]) => {
+  if (tiles.length !== 14) return false;
+  const normalized = tiles.map(baseTile);
+  const counts = countTiles(normalized);
+  let pairCount = 0;
+  for (const base of KOKUSHI_BASES) {
+    const ct = counts[base] || 0;
+    if (ct === 0) return false;
+    if (ct > 2) return false;
+    if (ct === 2) pairCount += 1;
+  }
+  if (pairCount !== 1) return false;
+  return Object.keys(counts).every((base) => KOKUSHI_BASES.includes(base));
+};
+
 type SetShape =
   | { kind: 'sequence'; tiles: [TileId, TileId, TileId]; open: boolean }
   | { kind: 'triplet'; tile: TileId; open: boolean }
@@ -598,6 +629,23 @@ export const calculateScore = (opts: {
   const meldTileInstances = opts.melds.flatMap((m) => m.tiles);
   const allTiles = [...opts.concealedTiles, ...meldTileInstances];
 
+  if (isMenzen && opts.melds.length === 0 && isKokushiHand(opts.concealedTiles)) {
+    const basePoints = 8000;
+    return {
+      baseYaku: [{ name: '国士無双', han: 13 }],
+      baseHan: 13,
+      yaku: [{ name: '国士無双', han: 13 }],
+      han: 13,
+      fu: 0,
+      limitName: '国士無双',
+      basePoints,
+      totalPoints: calcTotalPoints(opts.method, opts.isDealer, basePoints),
+      doraHan: 0,
+      akaDoraHan: 0,
+      uraDoraHan: 0,
+    };
+  }
+
   const preWinConcealedTiles = removeOneTile(opts.concealedTiles, opts.winTile);
   const possibleWinTiles = listPossibleWinTiles({
     preWinConcealedTiles,
@@ -623,7 +671,7 @@ export const calculateScore = (opts: {
       const shapes = extractAllConcealedShapes(opts.concealedTiles, requiredConcealedSetCount, opts.winTile);
       for (const s of shapes) {
         // "Nobetan" wait: if the hand is a one-tile wait but this fixed decomposition looks like ryanmen,
-        // treat it as 2符.
+        // add both interpretations so higher-scoring pinfu can be chosen when applicable.
         const normalizedWinTile = baseTile(opts.winTile);
         const isSingleTileWait = possibleWinTiles.size === 1 && possibleWinTiles.has(normalizedWinTile);
         const waitFu = isSingleTileWait && s.waitFu === 0 ? 2 : s.waitFu;
@@ -633,6 +681,14 @@ export const calculateScore = (opts: {
           isPinfuWait: waitFu === 0,
           sets: [...openSetShapes, ...s.sets],
         });
+        if (isSingleTileWait && s.waitFu === 0) {
+          candidateShapes.push({
+            ...s,
+            waitFu: 0,
+            isPinfuWait: true,
+            sets: [...openSetShapes, ...s.sets],
+          });
+        }
       }
     }
   }

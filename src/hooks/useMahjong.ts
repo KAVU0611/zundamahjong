@@ -184,6 +184,7 @@ const isWinningHand = (tiles: TileId[]) => {
 };
 
 const isWinningHandWithMeldCount = (concealedTiles: TileId[], meldCount: number) => {
+  if (meldCount === 0 && isKokushiHand(concealedTiles)) return true;
   const requiredSets = 4 - meldCount;
   if (requiredSets < 0) return false;
   if (concealedTiles.length !== requiredSets * 3 + 2) return false;
@@ -271,6 +272,27 @@ const getChiOptions = (hand: TileId[], tile?: TileId | null): TileId[][] => {
   return options;
 };
 
+const getKuikaeForbiddenBasesForChi = (calledBase: TileId, option: TileId[]): TileId[] => {
+  const bases = new Set<TileId>();
+  bases.add(calledBase);
+
+  const handBases = option.filter((b) => b !== calledBase);
+  if (handBases.length === 2) {
+    const suit = handBases[0]![0];
+    if (handBases.every((b) => b[0] === suit)) {
+      const nums = handBases.map((b) => parseInt(b.slice(1), 10)).sort((a, b) => a - b);
+      const low = nums[0] ?? 0;
+      const high = nums[1] ?? 0;
+      const candidates = [low - 1, high + 1];
+      for (const n of candidates) {
+        if (n >= 1 && n <= 9) bases.add(`${suit}${n}`);
+      }
+    }
+  }
+
+  return Array.from(bases);
+};
+
 const canPon = (hand: TileId[], tile: TileId) => (countTiles(hand)[tileBase(tile)] || 0) >= 2;
 const canKanFromDiscard = (hand: TileId[], tile: TileId) => (countTiles(hand)[tileBase(tile)] || 0) >= 3;
 
@@ -278,6 +300,35 @@ const isHonorBase = (base: TileId) => base[0] === 'z';
 const baseNumber = (base: TileId) => parseInt(base.slice(1), 10);
 const isTerminalBase = (base: TileId) => !isHonorBase(base) && (baseNumber(base) === 1 || baseNumber(base) === 9);
 const isSimpleBase = (base: TileId) => !isHonorBase(base) && baseNumber(base) >= 2 && baseNumber(base) <= 8;
+const KOKUSHI_BASES: TileId[] = [
+  'm1',
+  'm9',
+  'p1',
+  'p9',
+  's1',
+  's9',
+  'z1',
+  'z2',
+  'z3',
+  'z4',
+  'z5',
+  'z6',
+  'z7',
+];
+
+const isKokushiHand = (tiles: TileId[]) => {
+  if (tiles.length !== 14) return false;
+  const counts = countTiles(tiles);
+  let pairCount = 0;
+  for (const base of KOKUSHI_BASES) {
+    const ct = counts[base] || 0;
+    if (ct === 0) return false;
+    if (ct > 2) return false;
+    if (ct === 2) pairCount += 1;
+  }
+  if (pairCount !== 1) return false;
+  return Object.keys(counts).every((base) => KOKUSHI_BASES.includes(base));
+};
 const countDoraTiles = (tiles: TileId[], doraList: TileId[]) => {
   let total = 0;
   for (const t of tiles) {
@@ -357,9 +408,9 @@ export const useMahjong = (opts?: {
     opponent: false,
   });
   const [anyCallMade, setAnyCallMade] = useState(false);
-  const [kuikaeForbiddenBase, setKuikaeForbiddenBase] = useState<{ player: TileId | null; opponent: TileId | null }>({
-    player: null,
-    opponent: null,
+  const [kuikaeForbiddenBase, setKuikaeForbiddenBase] = useState<{ player: TileId[]; opponent: TileId[] }>({
+    player: [],
+    opponent: [],
   });
   const [riichiIntent, setRiichiIntent] = useState<{ player: boolean; opponent: boolean }>({
     player: false,
@@ -485,7 +536,7 @@ export const useMahjong = (opts?: {
     setDoubleRiichiState({ player: false, opponent: false });
     setIppatsuEligible({ player: false, opponent: false });
     setAnyCallMade(false);
-    setKuikaeForbiddenBase({ player: null, opponent: null });
+    setKuikaeForbiddenBase({ player: [], opponent: [] });
     setRiichiIntent({ player: false, opponent: false });
     setRiichiDeclarationIndex({ player: null, opponent: null });
     setCalledRiverIndices({ player: [], opponent: [] });
@@ -902,17 +953,6 @@ export const useMahjong = (opts?: {
       const willRepeat = isDealer; // 親のアガリは連荘
 
       if (!opts?.suppressRoundEndQuotes) {
-        if (winner === 'opponent') {
-          if (handPoints >= 8000) {
-            emitQuote('WIN_BIG', { force: true, persistText: true });
-          } else if (handPoints < 3900) {
-            emitQuote(reason === 'tsumo' ? 'WIN_SMALL_TSUMO' : 'WIN_SMALL_RON', { force: true, persistText: true });
-          } else {
-            emitQuote('WIN_SMALL_RON', { force: true, persistText: true });
-          }
-          const isFinal = roundIndex === ROUNDS.length - 1 && !willRepeat;
-          if (isFinal) emitQuote('GAME_WIN', { force: true, persistText: true });
-        }
         if (winner === 'player') {
           const category =
             handPoints <= 3900 ? 'PLAYER_WIN_LOW' : handPoints >= 8000 ? 'PLAYER_WIN_HIGH' : 'PLAYER_WIN_GENERIC';
@@ -1013,7 +1053,7 @@ export const useMahjong = (opts?: {
 
   const shouldOpponentCall = useCallback(
     (discard: TileId) => {
-      if (remainingJun <= 0) return null;
+      if (remainingJun <= 0 || wallRef.current.length <= 0) return null;
       // リーチ後は鳴けない（ロン以外）。※暗槓のみ別途処理
       if (riichiState.opponent) return null;
       const discardBase = tileBase(discard);
@@ -1227,6 +1267,12 @@ export const useMahjong = (opts?: {
 
         if (originalDrawn && !consumedDrawn) nextHand.push(originalDrawn);
 
+        if (canRonOnDiscard('opponent', addedTile)) {
+          releaseLock();
+          handleWin('opponent', 'ron', addedTile);
+          return true;
+        }
+
         setPlayerHand(nextHand.sort(sortHand));
         setPlayerDrawn(null);
         setPlayerMelds((melds) => {
@@ -1274,6 +1320,8 @@ export const useMahjong = (opts?: {
       playerMelds,
       playerHand,
       playerDrawn,
+      canRonOnDiscard,
+      handleWin,
       revealDoraIndicator,
       drawRinshanTileFor,
       riichiState.player,
@@ -1287,7 +1335,7 @@ export const useMahjong = (opts?: {
       if (!tile) return false;
       const base = tileBase(tile);
       const canRon = canRonOnDiscard('player', tile);
-      if (remainingJun <= 0) {
+      if (remainingJun <= 0 || wallRef.current.length <= 0) {
         if (!canRon) return false;
         setCallPrompt({
           from: 'opponent',
@@ -1357,7 +1405,6 @@ export const useMahjong = (opts?: {
 
       noteCallMade();
       // 鳴かれた牌は河に残し、`calledRiverIndices` で薄く表示する
-      setKuikaeForbiddenBase((k) => ({ ...k, player: tileBase(tile) }));
 
       const nextHand = [...playerHand];
       let meldToAdd: Meld | null = null;
@@ -1366,9 +1413,11 @@ export const useMahjong = (opts?: {
       if (type === 'pon') {
         const removed = removeTilesByBase(nextHand, base, 2);
         if (removed.length === 2) meldToAdd = { type: 'pon', tiles: [tile, ...removed] };
+        setKuikaeForbiddenBase((k) => ({ ...k, player: [base] }));
       } else if (type === 'kan') {
         const removed = removeTilesByBase(nextHand, base, 3);
         if (removed.length === 3) meldToAdd = { type: 'kan', tiles: [tile, ...removed], concealed: false };
+        setKuikaeForbiddenBase((k) => ({ ...k, player: [base] }));
       } else if (type === 'chi' && option) {
         const meldTiles: TileId[] = [];
         for (const t of option) {
@@ -1381,6 +1430,7 @@ export const useMahjong = (opts?: {
           meldTiles.push(taken);
         }
         meldToAdd = { type: 'chi', tiles: meldTiles };
+        setKuikaeForbiddenBase((k) => ({ ...k, player: getKuikaeForbiddenBasesForChi(base, option) }));
       }
 
       if (meldToAdd) setPlayerMelds((m) => [...m, meldToAdd]);
@@ -1445,8 +1495,8 @@ export const useMahjong = (opts?: {
       // リーチ準備中は「切ってもテンパイが維持できる牌」以外切れない
       if (riichiIntent.player && !riichiState.player && !isTenpaiWithMeldCount(newHand, playerMelds.length)) return;
 
-      // 鳴き直後の食い替え簡易ルール：鳴いた牌と同種は直後に切れない
-      if (kuikaeForbiddenBase.player && tileBase(discard) === kuikaeForbiddenBase.player) return;
+      // 鳴き直後の食い替え簡易ルール：禁止牌は直後に切れない
+      if (kuikaeForbiddenBase.player.length && kuikaeForbiddenBase.player.includes(tileBase(discard))) return;
 
       setPlayerDrawn(nextDrawn);
       setPlayerHand(newHand);
@@ -1482,7 +1532,7 @@ export const useMahjong = (opts?: {
           setOpponentHand(newHand);
           setOpponentMelds((m) => [...m, { type: 'kan', tiles: [tile, ...removed], concealed: false }]);
           markCalledDiscard('player', discardIndex);
-          setKuikaeForbiddenBase((k) => ({ ...k, opponent: discardBase }));
+          setKuikaeForbiddenBase((k) => ({ ...k, opponent: [discardBase] }));
           revealDoraIndicator();
           drawRinshanTileFor('opponent');
           setSkipDraw(true);
@@ -1499,7 +1549,7 @@ export const useMahjong = (opts?: {
           setOpponentHand(newHand);
           setOpponentMelds((m) => [...m, { type: 'pon', tiles: [tile, ...removed] }]);
           markCalledDiscard('player', discardIndex);
-          setKuikaeForbiddenBase((k) => ({ ...k, opponent: discardBase }));
+          setKuikaeForbiddenBase((k) => ({ ...k, opponent: [discardBase] }));
           setSkipDraw(true);
           setCurrentTurn('opponent');
           setGameState('opponent_turn');
@@ -1522,7 +1572,7 @@ export const useMahjong = (opts?: {
           setOpponentHand(newHand);
           setOpponentMelds((m) => [...m, { type: 'chi', tiles: meldTiles }]);
           markCalledDiscard('player', discardIndex);
-          setKuikaeForbiddenBase((k) => ({ ...k, opponent: discardBase }));
+          setKuikaeForbiddenBase((k) => ({ ...k, opponent: getKuikaeForbiddenBasesForChi(discardBase, option) }));
           setSkipDraw(true);
           setCurrentTurn('opponent');
           setGameState('opponent_turn');
@@ -1533,8 +1583,8 @@ export const useMahjong = (opts?: {
       if (wasAlreadyRiichi) {
         setIppatsuEligible((i) => ({ ...i, player: false }));
       }
-      if (kuikaeForbiddenBase.player) {
-        setKuikaeForbiddenBase((k) => ({ ...k, player: null }));
+      if (kuikaeForbiddenBase.player.length) {
+        setKuikaeForbiddenBase((k) => ({ ...k, player: [] }));
       }
 
       // 通常進行
@@ -1580,7 +1630,7 @@ export const useMahjong = (opts?: {
       }
       const fullHand = tile ? [...opponentHand, tile] : [...opponentHand];
       if (!fullHand.length) return null;
-      const forbidBase = kuikaeForbiddenBase.opponent;
+      const forbidBases = kuikaeForbiddenBase.opponent;
       const meldCount = opponentMelds.length;
       const remainingCounts = countTiles(wallRef.current);
       const reachThreat = riichiState.player;
@@ -1600,7 +1650,7 @@ export const useMahjong = (opts?: {
         candidatesByBase.set(base, list);
       }
 
-      const isForbiddenBase = (base: string) => !!forbidBase && base === forbidBase;
+      const isForbiddenBase = (base: string) => forbidBases.includes(base);
 
       const chooseIndexForBase = (indices: number[]) => {
         const nonRed = indices.find((i) => !isRedTile(fullHand[i]!));
@@ -1745,7 +1795,7 @@ export const useMahjong = (opts?: {
       setOpponentDrawn(null);
       const riverIndex = opponentRiver.length;
       setOpponentRiver((r) => [...r, makeRiverEntry(discard)]);
-      if (kuikaeForbiddenBase.opponent) setKuikaeForbiddenBase((k) => ({ ...k, opponent: null }));
+      if (kuikaeForbiddenBase.opponent.length) setKuikaeForbiddenBase((k) => ({ ...k, opponent: [] }));
 
       // テンパイになったら即リーチ（門前＆供託支払い可能＆局が残っている場合）
       if (!riichiState.opponent && opponentMelds.length === 0 && remainingJun > 0 && (scores.opponent ?? 0) >= RIICHI_COST) {
